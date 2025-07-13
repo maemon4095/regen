@@ -1,0 +1,8 @@
+[package]
+name = "regen"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regen-core = { path = "../regen-core" }
+regen-macro = { path = "../regen-macro" }

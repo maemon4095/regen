@@ -1,0 +1,10 @@
+[package]
+name = "regen-macro"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+regen-macro-impl = { path = "../regen-macro-impl" }
