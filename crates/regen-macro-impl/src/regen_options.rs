@@ -96,6 +96,27 @@ impl PathResolver {
         }
     }
 
+    pub fn result_type(&self) -> impl ToTokens {
+        let lib = self.regen_macro_lib();
+        quote! {
+            #lib::std::Result
+        }
+    }
+
+    pub fn into_trait(&self) -> impl ToTokens {
+        let lib = self.regen_macro_lib();
+        quote! {
+            #lib::std::Into
+        }
+    }
+
+    pub fn replace_fn(&self) -> impl ToTokens {
+        let lib = self.regen_macro_lib();
+        quote! {
+            #lib::std::replace
+        }
+    }
+
     pub fn advance_result_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
         quote!(#lib::AdvanceResult)

@@ -1,0 +1,7 @@
+[package]
+name = "regen-macro-test"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+regen = { path = "../regen" }

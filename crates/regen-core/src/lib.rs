@@ -1,3 +1,7 @@
+mod from_char_seq;
+
+pub use from_char_seq::{FromCharSequence, FromCharSequenceBuilder};
+
 pub trait Parse<T>: Sized {
     type Error;
     type StateMachine: StateMachine<T, Output = Self, Error = Self::Error>;
@@ -10,34 +14,24 @@ pub trait StateMachine<T>: Default {
     fn complete(&mut self) -> CompleteResult<Self::Output, Self::Error>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AdvanceResult<T, E> {
     Error(E),
     Partial(usize),
     Match(T, usize),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CompleteResult<T, E> {
     Error(E),
     Match(T, usize),
-}
-
-pub trait FromCharSequence<T> {
-    type Error;
-    type Builder: FromCharSequenceBuilder<T, Error = Self::Error>;
-}
-
-pub trait FromCharSequenceBuilder<T>: Default {
-    type Type: FromCharSequence<T>;
-    type Error;
-
-    fn append(&mut self, char: T);
-    fn build(&self) -> Result<Self::Type, Self::Error>;
 }
 
 pub trait StateMachineError {
     fn not_matched() -> Self;
 }
 
+#[derive(Debug)]
 pub enum MatchError {
     NotMatched,
     Collect(Box<dyn std::error::Error>),
@@ -48,3 +42,20 @@ impl StateMachineError for MatchError {
         Self::NotMatched
     }
 }
+
+impl<T: 'static + std::error::Error> From<T> for MatchError {
+    fn from(value: T) -> Self {
+        MatchError::Collect(value.into())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NeverError {}
+
+impl std::fmt::Display for NeverError {
+    fn fmt(&self, _: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        unreachable!()
+    }
+}
+
+impl std::error::Error for NeverError {}

@@ -71,6 +71,9 @@ fn create_branches<T: PatternChar>(
 
     let mut map = IntervalMap::new();
     for (min, max, s) in branches.iter() {
+        if s.is_empty() {
+            continue;
+        }
         let closure = epsilon_closure(graph, s.iter().copied());
         let id = context.get_id(&closure);
 
@@ -177,5 +180,18 @@ impl<T: PatternChar> ConvertionContext<T> {
         self.unchecked.push(closure);
         self.states.push(MatchState::new());
         id
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test() {
+        let ndgraph = nondeterministic::MatchGraph::<u8>::new();
+        dbg!(&ndgraph);
+        let graph = MatchGraph::from_nondeterministic(&ndgraph);
+        dbg!(graph);
     }
 }
