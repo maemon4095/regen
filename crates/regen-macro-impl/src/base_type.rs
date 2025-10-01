@@ -7,18 +7,6 @@ pub enum BaseType {
     U64,
 }
 
-impl quote::ToTokens for BaseType {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        match self {
-            BaseType::Char => kw::char::default().to_tokens(tokens),
-            BaseType::U8 => kw::u8::default().to_tokens(tokens),
-            BaseType::U16 => kw::u16::default().to_tokens(tokens),
-            BaseType::U32 => kw::u32::default().to_tokens(tokens),
-            BaseType::U64 => kw::u64::default().to_tokens(tokens),
-        }
-    }
-}
-
 mod kw {
     syn::custom_keyword!(char);
     syn::custom_keyword!(u8);

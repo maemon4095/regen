@@ -1,22 +1,14 @@
-use std::cell::LazyCell;
-
-use quote::format_ident;
-use syn::parse_quote;
-
 use crate::{base_type::BaseType, match_graph::MatchProp};
+use quote::{ToTokens, format_ident, quote};
+use syn::{parse_quote, spanned::Spanned as _};
 
 pub struct RegenOptions {
-    base_type: BaseType,
     allow_conflict: bool,
     error_type: syn::Path,
     resolver: PathResolver,
 }
 
 impl RegenOptions {
-    pub fn base_type(&self) -> &BaseType {
-        &self.base_type
-    }
-
     pub fn allow_conflict(&self) -> bool {
         self.allow_conflict
     }
@@ -54,11 +46,13 @@ pub fn strip_options(
         i += 1;
     }
 
-    let resolver = PathResolver::new();
-    let error_type = resolver.default_match_error_type();
+    let resolver = PathResolver::new(base_type.clone());
+    let error_type = {
+        let ty = resolver.default_match_error_type();
+        parse_quote!(#ty)
+    };
 
     Ok(RegenOptions {
-        base_type,
         allow_conflict,
         error_type,
         resolver,
@@ -66,68 +60,122 @@ pub fn strip_options(
 }
 
 pub struct PathResolver {
-    regen_macro_lib: LazyCell<syn::Path>,
+    base_type: syn::Path,
+    regen_macro_lib: syn::Path,
 }
 
 impl PathResolver {
-    fn new() -> Self {
+    fn new(base_type: BaseType) -> Self {
+        let regen_macro_lib = parse_quote!(::regen::__internal_macro);
+        let base_type = match base_type {
+            BaseType::Char => parse_quote!(#regen_macro_lib::std::char),
+            BaseType::U8 => parse_quote!(#regen_macro_lib::std::u8),
+            BaseType::U16 => parse_quote!(#regen_macro_lib::std::u16),
+            BaseType::U32 => parse_quote!(#regen_macro_lib::std::u32),
+            BaseType::U64 => parse_quote!(#regen_macro_lib::std::u64),
+        };
+
         Self {
-            regen_macro_lib: LazyCell::new(|| parse_quote!(::regen::__internal_macro)),
+            base_type,
+            regen_macro_lib,
         }
     }
 
-    fn regen_macro_lib(&self) -> &syn::Path {
-        &*self.regen_macro_lib
+    fn regen_macro_lib(&self) -> impl ToTokens {
+        &self.regen_macro_lib
     }
 
-    pub fn advance_result_type(&self) -> syn::Path {
+    pub fn base_type(&self) -> impl ToTokens {
+        &self.base_type
+    }
+
+    pub fn default_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::AdvanceResult)
+        quote! {
+            #lib::std::Default
+        }
     }
 
-    pub fn complete_result_type(&self) -> syn::Path {
+    pub fn advance_result_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::CompleteResult)
+        quote!(#lib::AdvanceResult)
     }
 
-    pub fn default_match_error_type(&self) -> syn::Path {
+    pub fn complete_result_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::MatchError)
+        quote!(#lib::CompleteResult)
     }
 
-    pub fn state_machine_error_trait(&self) -> syn::Path {
+    pub fn default_match_error_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::StateMachineError)
+        quote!(#lib::MatchError)
     }
 
-    pub fn state_machine_trait(&self) -> syn::Path {
+    pub fn state_machine_error_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::StateMachine)
+        quote!(#lib::StateMachineError)
     }
 
-    pub fn from_char_seq_trait(&self) -> syn::Path {
+    pub fn state_machine_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::FromCharSequence)
+        quote!(#lib::StateMachine)
     }
 
-    pub fn from_char_seq_builder_trait(&self) -> syn::Path {
+    pub fn from_char_seq_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        parse_quote!(#lib::FromCharSequenceBuilder)
+        quote!(#lib::FromCharSequence)
     }
 
-    pub fn state_machine_name(&self, item: &syn::ItemEnum) -> syn::Ident {
+    pub fn from_char_seq_builder_trait(&self) -> impl ToTokens {
+        let lib = self.regen_macro_lib();
+        quote!(#lib::FromCharSequenceBuilder)
+    }
+
+    pub fn state_machine_type_name(&self, item: &syn::ItemEnum) -> impl ToTokens {
         format_ident!("__regen_macro_state_machine_{}", item.ident)
     }
 
-    pub fn state_machine_state_name(&self, item: &syn::ItemEnum) -> syn::Ident {
+    pub fn state_machine_state_type_name(&self, item: &syn::ItemEnum) -> impl ToTokens {
         format_ident!("__regen_macro_state_machine_{}State", item.ident)
     }
 
-    pub fn variant_name(&self, state_index: usize) -> syn::Ident {
+    pub fn state_variant_name(&self, state_index: usize) -> impl ToTokens {
         quote::format_ident!("State_{}", state_index)
     }
 
-    pub fn variant_field_name(&self, prop: &MatchProp) -> syn::Ident {
+    pub fn dead_state_variant_name(&self) -> impl ToTokens {
+        quote::format_ident!("State_dead")
+    }
+
+    pub fn state_field_name(&self, prop: &MatchProp) -> impl ToTokens {
         quote::format_ident!("_{}_{}", prop.assoc, prop.field)
+    }
+
+    pub fn state_field_type(&self, item: &syn::ItemEnum, prop: &MatchProp) -> impl ToTokens {
+        let base_type = self.base_type();
+        let from_char_seq_trait = self.from_char_seq_trait();
+        let variant = &item.variants[prop.assoc];
+        let ty = variant.fields.iter().enumerate().find_map(|(i, e)| {
+            let field = e
+                .ident
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or(i.to_string());
+
+            (field == prop.field).then_some(&e.ty)
+        });
+
+        ty.map(|e| {
+            quote! {
+                <#e as #from_char_seq_trait<#base_type>>::Builder
+            }
+        })
+        .unwrap_or_else(|| {
+            syn::Error::new(
+                variant.span(),
+                format!("no field with name `{}` in the variant", prop.field),
+            )
+            .to_compile_error()
+        })
     }
 }

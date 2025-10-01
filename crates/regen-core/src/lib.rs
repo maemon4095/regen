@@ -13,12 +13,12 @@ pub trait StateMachine<T>: Default {
 pub enum AdvanceResult<T, E> {
     Error(E),
     Partial(usize),
-    Done(T, usize),
+    Match(T, usize),
 }
 
 pub enum CompleteResult<T, E> {
     Error(E),
-    Done(T, usize),
+    Match(T, usize),
 }
 
 pub trait FromCharSequence<T> {

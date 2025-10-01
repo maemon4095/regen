@@ -2,8 +2,8 @@ use syn::spanned::Spanned;
 
 use crate::{
     Declares,
-    expr::PatternChar,
     pattern::{Pattern, PatternCollect, PatternJoin, PatternOr, PatternRepeat},
+    pattern_char::PatternChar,
 };
 
 pub struct ResolvedPattern<T: PatternChar> {

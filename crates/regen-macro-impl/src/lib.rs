@@ -5,6 +5,7 @@ mod generate;
 mod linkedlist;
 mod match_graph;
 mod pattern;
+mod pattern_char;
 mod regen_args;
 mod regen_options;
 mod regen_prelude;
@@ -12,14 +13,16 @@ mod resolved_pattern;
 mod util;
 mod variant_pattern;
 
-use crate::{
-    base_type::BaseType, declares::Declares, expr::PatternChar, generate::generate_state_machine,
-    regen_options::strip_options, regen_prelude::strip_prelude,
-    variant_pattern::strip_variant_attrs,
-};
+use base_type::BaseType;
+use declares::Declares;
+use generate::generate_state_machine;
+use pattern_char::PatternChar;
 use proc_macro2::TokenStream;
 use quote::quote;
 use regen_args::RegenArgs;
+use regen_options::strip_options;
+use regen_prelude::strip_prelude;
+use variant_pattern::strip_variant_attrs;
 
 pub fn regen(attr: TokenStream, body: TokenStream) -> TokenStream {
     let options: RegenArgs = match syn::parse2(attr) {
@@ -86,6 +89,30 @@ mod test {
                 #[pattern = collect!(x, repeat!(0, 1..)) + repeat!(1 | 2) + p]
                 #[default]
                 A { x: String },
+            }
+        };
+
+        let tokens = regen(attr, body);
+        println!("{}", tokens);
+        let file: syn::File = syn::parse2(tokens).unwrap();
+
+        println!("{}", prettyplease::unparse(&file));
+    }
+
+    #[test]
+    fn test_conflict() {
+        let attr: TokenStream = syn::parse_quote! {
+            u8
+        };
+
+        let body: TokenStream = syn::parse_quote! {
+            pub enum Test {
+                #[pattern = b"abc"]
+                #[default]
+                A { x: String },
+                #[pattern = b"abc"]
+                #[default]
+                B { x: String },
             }
         };
 

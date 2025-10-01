@@ -1,17 +1,19 @@
 use std::{collections::BTreeSet, ops::Bound};
 
 use crate::{
-    expr::{PatternChar, is_range_empty},
     linkedlist::LinkedList,
     match_graph::MatchProp,
     pattern::{
         Pattern, PatternAtom, PatternCollect, PatternJoin, PatternOr, PatternRepeat, PatternSeq,
     },
+    pattern_char::PatternChar,
     resolved_pattern::ResolvedPattern,
-    util::{IntervalMap, interval_map::Interval},
+    util::{IntervalMap, interval_map::Interval, range::is_range_empty},
 };
 
 // 関数を使ったclassも、含む含まないの全パターン列挙することでDFAにできるが、ステートが爆発的に増えるため追加しない。
+
+// TODO: collectのfieldの扱いが間違っているはず。マッチが完全に完了するまではステート自体は必要で、追加するかどうかのみが変わるはず。
 
 #[derive(Debug)]
 pub struct MatchGraph<T: PatternChar> {
@@ -26,18 +28,19 @@ impl<T: PatternChar> MatchGraph<T> {
     }
 
     pub fn add(&mut self, assoc: usize, pattern: ResolvedPattern<T>) {
-        let s = self.insert(0, assoc, &pattern, LinkedList::empty());
+        let s = self.insert(0, assoc, &pattern, LinkedList::empty(), &mut Vec::new());
         self.states[s].assoc.push(assoc);
     }
 
-    fn alloc_state(&mut self, props: &LinkedList<MatchProp>) -> usize {
+    fn alloc_state(&mut self, collects: &LinkedList<MatchProp>, props: &Vec<MatchProp>) -> usize {
         let next = self.states.len();
 
         let state = MatchState {
             branches: Default::default(),
             epsilon_transitions: Default::default(),
             assoc: Default::default(),
-            props: props.to_vec(),
+            collects: collects.to_vec(),
+            props: props.clone(),
         };
 
         self.states.push(state);
@@ -49,9 +52,10 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &ResolvedPattern<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
-        self.insert_impl(state, assoc, pattern.pattern(), props)
+        self.insert_impl(state, assoc, pattern.pattern(), collects, props)
     }
 
     fn insert_impl(
@@ -59,15 +63,16 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &Pattern<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
         match pattern {
-            Pattern::Atom(p) => self.insert_atom(state, p, props),
-            Pattern::Seq(p) => self.insert_seq(state, p, props),
-            Pattern::Join(p) => self.insert_join(state, assoc, p, props),
-            Pattern::Or(p) => self.insert_or(state, assoc, p, props),
-            Pattern::Repeat(p) => self.insert_repeat(state, assoc, p, props),
-            Pattern::Collect(p) => self.insert_collect(state, assoc, p, props),
+            Pattern::Atom(p) => self.insert_atom(state, p, collects, props),
+            Pattern::Seq(p) => self.insert_seq(state, p, collects, props),
+            Pattern::Join(p) => self.insert_join(state, assoc, p, collects, props),
+            Pattern::Or(p) => self.insert_or(state, assoc, p, collects, props),
+            Pattern::Repeat(p) => self.insert_repeat(state, assoc, p, collects, props),
+            Pattern::Collect(p) => self.insert_collect(state, assoc, p, collects, props),
             Pattern::Class(_) => unreachable!(),
         }
     }
@@ -76,9 +81,10 @@ impl<T: PatternChar> MatchGraph<T> {
         &mut self,
         state: usize,
         pattern: &PatternAtom<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
-        let dst = self.alloc_state(&props);
+        let dst = self.alloc_state(&collects, props);
         let range = match pattern {
             PatternAtom::Primitive(p) => (Bound::Included(p), Bound::Included(p)),
             PatternAtom::Range(s, e) => (s.as_ref(), e.as_ref()),
@@ -92,10 +98,11 @@ impl<T: PatternChar> MatchGraph<T> {
         &mut self,
         mut state: usize,
         pattern: &PatternSeq<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
         for p in &pattern.atoms {
-            state = self.insert_atom(state, p, props.clone());
+            state = self.insert_atom(state, p, collects.clone(), props);
         }
         state
     }
@@ -105,10 +112,11 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &PatternJoin<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
-        let state = self.insert_impl(state, assoc, &pattern.lhs, props.clone());
-        let state = self.insert_impl(state, assoc, &pattern.rhs, props);
+        let state = self.insert_impl(state, assoc, &pattern.lhs, collects.clone(), props);
+        let state = self.insert_impl(state, assoc, &pattern.rhs, collects, props);
         state
     }
 
@@ -117,11 +125,12 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &PatternOr<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
-        let state0 = self.insert_impl(state, assoc, &pattern.lhs, props.clone());
-        let state1 = self.insert_impl(state, assoc, &pattern.rhs, props.clone());
-        let state = self.alloc_state(&props);
+        let state0 = self.insert_impl(state, assoc, &pattern.lhs, collects.clone(), props);
+        let state1 = self.insert_impl(state, assoc, &pattern.rhs, collects.clone(), props);
+        let state = self.alloc_state(&collects, props);
 
         self.states[state0].epsilon_transitions.push(state);
         self.states[state1].epsilon_transitions.push(state);
@@ -135,10 +144,11 @@ impl<T: PatternChar> MatchGraph<T> {
         assoc: usize,
         pattern: &Pattern<T>,
         count: usize,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
         for _ in 0..count {
-            state = self.insert_impl(state, assoc, pattern, props.clone());
+            state = self.insert_impl(state, assoc, pattern, collects.clone(), props);
         }
         state
     }
@@ -148,7 +158,8 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &PatternRepeat<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
         if is_range_empty(pattern.start, pattern.end) {
             panic!("Range must not be empty.")
@@ -156,13 +167,18 @@ impl<T: PatternChar> MatchGraph<T> {
 
         let state = match pattern.start {
             Bound::Included(n) if n > 0 => {
-                self.insert_repeat_n(state, assoc, &pattern.pattern, n, props.clone())
+                self.insert_repeat_n(state, assoc, &pattern.pattern, n, collects.clone(), props)
             }
-            Bound::Excluded(n) => {
-                self.insert_repeat_n(state, assoc, &pattern.pattern, n + 1, props.clone())
-            }
+            Bound::Excluded(n) => self.insert_repeat_n(
+                state,
+                assoc,
+                &pattern.pattern,
+                n + 1,
+                collects.clone(),
+                props,
+            ),
             _ => {
-                let s = self.alloc_state(&props);
+                let s = self.alloc_state(&collects, props);
                 self.states[state].epsilon_transitions.push(s);
                 s
             }
@@ -171,24 +187,26 @@ impl<T: PatternChar> MatchGraph<T> {
         match &pattern.end {
             Bound::Included(n) => {
                 let mut state = state;
-                let end_state = self.alloc_state(&props);
+                let end_state = self.alloc_state(&collects, props);
                 for _ in 0..(*n) {
-                    state = self.insert_impl(state, assoc, &pattern.pattern, props.clone());
+                    state =
+                        self.insert_impl(state, assoc, &pattern.pattern, collects.clone(), props);
                     self.states[state].epsilon_transitions.push(end_state);
                 }
                 end_state
             }
             Bound::Excluded(n) => {
                 let mut state = state;
-                let end_state = self.alloc_state(&props);
+                let end_state = self.alloc_state(&collects, props);
                 for _ in 1..(*n) {
-                    state = self.insert_impl(state, assoc, &pattern.pattern, props.clone());
+                    state =
+                        self.insert_impl(state, assoc, &pattern.pattern, collects.clone(), props);
                     self.states[state].epsilon_transitions.push(end_state);
                 }
                 end_state
             }
             Bound::Unbounded => {
-                let s = self.insert_impl(state, assoc, &pattern.pattern, props);
+                let s = self.insert_impl(state, assoc, &pattern.pattern, collects, props);
                 self.states[s].epsilon_transitions.push(state);
                 state
             }
@@ -200,17 +218,16 @@ impl<T: PatternChar> MatchGraph<T> {
         state: usize,
         assoc: usize,
         pattern: &PatternCollect<T>,
-        props: LinkedList<MatchProp>,
+        collects: LinkedList<MatchProp>,
+        props: &mut Vec<MatchProp>,
     ) -> usize {
-        self.insert_impl(
-            state,
+        let prop = MatchProp {
             assoc,
-            &pattern.pattern,
-            props.append(MatchProp {
-                assoc,
-                field: pattern.field.clone(),
-            }),
-        )
+            field: pattern.field.clone(),
+        };
+
+        props.push(prop.clone());
+        self.insert_impl(state, assoc, &pattern.pattern, collects.append(prop), props)
     }
 }
 
@@ -219,6 +236,7 @@ pub(super) struct MatchState<T: PatternChar> {
     pub(super) branches: MatchBranches<T>,
     pub(super) epsilon_transitions: Vec<usize>,
     pub(super) assoc: Vec<usize>,
+    pub(super) collects: Vec<MatchProp>,
     pub(super) props: Vec<MatchProp>,
 }
 
@@ -228,6 +246,7 @@ impl<T: PatternChar> Default for MatchState<T> {
             branches: Default::default(),
             epsilon_transitions: Default::default(),
             assoc: Default::default(),
+            collects: Default::default(),
             props: Default::default(),
         }
     }

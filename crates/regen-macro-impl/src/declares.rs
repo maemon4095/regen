@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{expr::PatternChar, pattern::Pattern};
+use crate::{pattern::Pattern, pattern_char::PatternChar};
 use syn::{punctuated::Punctuated, spanned::Spanned};
 
 #[derive(Debug, Clone)]

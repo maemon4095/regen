@@ -5,5 +5,6 @@ pub mod __internal_macro {
     pub use regen_core::*;
     pub mod std {
         pub use Default;
+        pub use {char, u8, u16, u32, u64};
     }
 }

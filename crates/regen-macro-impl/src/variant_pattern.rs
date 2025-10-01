@@ -1,4 +1,4 @@
-use crate::{declares::Declares, expr::PatternChar, pattern::Pattern};
+use crate::{declares::Declares, pattern::Pattern, pattern_char::PatternChar};
 use syn::spanned::Spanned;
 
 pub struct VariantPattern<T: PatternChar> {

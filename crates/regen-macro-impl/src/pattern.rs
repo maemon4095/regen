@@ -1,6 +1,6 @@
 use std::ops::Bound;
 
-use crate::expr::{PatternChar, eval_as_range};
+use crate::{expr::eval_as_range, pattern_char::PatternChar};
 use syn::{parse::Parse, punctuated::Punctuated, spanned::Spanned};
 
 #[derive(Debug, Clone)]

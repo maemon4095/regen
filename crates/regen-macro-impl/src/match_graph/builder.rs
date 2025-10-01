@@ -1,6 +1,6 @@
 use crate::{
-    expr::PatternChar,
     match_graph::{deterministic, nondeterministic},
+    pattern_char::PatternChar,
     resolved_pattern::ResolvedPattern,
 };
 

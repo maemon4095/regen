@@ -1,4 +1,4 @@
-use std::ops::RangeBounds;
+use std::ops::{Bound, RangeBounds};
 
 use crate::util::Discrete;
 
@@ -16,4 +16,20 @@ pub fn to_ropen<T: Discrete + Clone>(r: impl RangeBounds<T>) -> (Option<T>, Opti
     };
 
     (start, end)
+}
+
+pub fn is_range_empty(start: Bound<usize>, end: Bound<usize>) -> bool {
+    match (start, end) {
+        (Bound::Included(min), Bound::Included(max)) => min > max,
+        (Bound::Included(min), Bound::Excluded(max)) => min >= max,
+        (Bound::Included(_), Bound::Unbounded) => false,
+        (Bound::Excluded(min), Bound::Included(max)) => min >= max,
+        (Bound::Excluded(min), Bound::Excluded(max)) => {
+            max.checked_sub(min).map(|d| d > 1).unwrap_or(false)
+        }
+        (Bound::Excluded(min), Bound::Unbounded) => min == usize::MAX,
+        (Bound::Unbounded, Bound::Included(_)) => false,
+        (Bound::Unbounded, Bound::Excluded(max)) => max == 0,
+        (Bound::Unbounded, Bound::Unbounded) => false,
+    }
 }

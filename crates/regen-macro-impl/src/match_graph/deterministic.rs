@@ -2,8 +2,8 @@ use super::nondeterministic;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{
-    expr::PatternChar,
     match_graph::MatchProp,
+    pattern_char::PatternChar,
     util::{IntervalMap, interval_map::store::Unique},
 };
 
@@ -35,6 +35,14 @@ impl<T: PatternChar> MatchGraph<T> {
                 .iter()
                 .flat_map(|i| &graph.states[*i].assoc)
                 .copied()
+                .collect();
+            state.assoc.sort();
+
+            state.collects = closure
+                .states
+                .iter()
+                .flat_map(|i| &graph.states[*i].collects)
+                .cloned()
                 .collect();
 
             state.props = closure
@@ -99,6 +107,7 @@ fn epsilon_closure<T: PatternChar>(
 pub struct MatchState<T: PatternChar> {
     branches: MatchBranches<T>,
     assoc: Vec<usize>,
+    collects: HashSet<MatchProp>,
     props: HashSet<MatchProp>,
 }
 
@@ -107,6 +116,7 @@ impl<T: PatternChar> MatchState<T> {
         Self {
             branches: MatchBranches::new(),
             assoc: Vec::new(),
+            collects: HashSet::new(),
             props: HashSet::new(),
         }
     }
@@ -119,8 +129,12 @@ impl<T: PatternChar> MatchState<T> {
         &self.assoc
     }
 
-    pub fn props(&self) -> impl Iterator<Item = &MatchProp> {
-        self.props.iter()
+    pub fn collects(&self) -> &HashSet<MatchProp> {
+        &self.collects
+    }
+
+    pub fn props(&self) -> &HashSet<MatchProp> {
+        &self.props
     }
 }
 

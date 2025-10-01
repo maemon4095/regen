@@ -1,4 +1,4 @@
-use crate::{declares::Declares, expr::PatternChar};
+use crate::{declares::Declares, pattern_char::PatternChar};
 
 pub fn strip_prelude<T: PatternChar>(
     item: &mut syn::ItemEnum,
