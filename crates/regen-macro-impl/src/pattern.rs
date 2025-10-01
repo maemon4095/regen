@@ -1,17 +1,20 @@
-use crate::expr::eval_as_usize;
+use std::ops::Bound;
+
+use crate::expr::{PatternChar, eval_as_range};
 use syn::{parse::Parse, punctuated::Punctuated, spanned::Spanned};
 
-#[allow(unused)]
-pub enum Pattern {
-    Atom(PatternAtom),
-    Seq(PatternSeq),
-    Join(Box<PatternJoin>),
-    Or(Box<PatternOr>),
-    Repeat(Box<PatternRepeat>),
-    Collect(Box<PatternCollect>),
+#[derive(Debug, Clone)]
+pub enum Pattern<T: PatternChar> {
+    Atom(PatternAtom<T>),
+    Class(PatternClass),
+    Seq(PatternSeq<T>),
+    Join(Box<PatternJoin<T>>),
+    Or(Box<PatternOr<T>>),
+    Repeat(Box<PatternRepeat<T>>),
+    Collect(Box<PatternCollect<T>>),
 }
 
-impl Pattern {
+impl<T: PatternChar> Pattern<T> {
     pub fn new(expr: &syn::Expr) -> Result<Self, syn::Error> {
         let p = match expr {
             syn::Expr::Lit(e) => {
@@ -20,18 +23,35 @@ impl Pattern {
                 match &e.lit {
                     Str(l) => Pattern::Seq(PatternSeq::from_str(l)?),
                     ByteStr(l) => Pattern::Seq(PatternSeq::from_bstr(l)?),
-                    Byte(l) => Pattern::Atom(PatternAtom::Byte(l.clone())),
-                    Char(l) => Pattern::Atom(PatternAtom::Char(l.clone())),
-                    Int(l) => Pattern::Atom(PatternAtom::Int(l.clone())),
-                    Float(l) => Pattern::Atom(PatternAtom::Float(l.clone())),
-                    Bool(l) => Pattern::Atom(PatternAtom::Bool(l.clone())),
-                    _ => {
-                        return Err(syn::Error::new(e.span(), "Unexpected literal."));
-                    }
+                    e => Pattern::Atom(PatternAtom::Primitive(T::try_from_lit(e)?)),
                 }
             }
-            syn::Expr::Path(e) => Pattern::Atom(PatternAtom::Class(e.path.clone())),
-            syn::Expr::Range(e) => Pattern::Atom(PatternAtom::Range(e.clone())),
+            syn::Expr::Path(e) => Pattern::Class(PatternClass {
+                path: e.path.clone(),
+            }),
+            syn::Expr::Range(range) => {
+                let start = match &range.start {
+                    Some(e) => {
+                        let e = expect_lit(e)?;
+                        Bound::Included(T::try_from_lit(e)?)
+                    }
+                    None => Bound::Unbounded,
+                };
+
+                let end = match &range.end {
+                    Some(e) => {
+                        let e = expect_lit(e)?;
+                        let e = T::try_from_lit(e)?;
+                        match range.limits {
+                            syn::RangeLimits::HalfOpen(_) => Bound::Excluded(e),
+                            syn::RangeLimits::Closed(_) => Bound::Included(e),
+                        }
+                    }
+                    None => Bound::Unbounded,
+                };
+
+                Pattern::Atom(PatternAtom::Range(start, end))
+            }
             syn::Expr::Binary(e) => {
                 let lhs = Pattern::new(&e.left)?;
                 let rhs = Pattern::new(&e.right)?;
@@ -73,30 +93,48 @@ impl Pattern {
     }
 }
 
+fn expect_lit(e: &syn::Expr) -> Result<&syn::Lit, syn::Error> {
+    match e {
+        syn::Expr::Lit(e) => Ok(&e.lit),
+        e => Err(syn::Error::new(
+            e.span(),
+            "Unexpected expression. literal was expected.",
+        )),
+    }
+}
+
+impl<T: PatternChar> From<PatternAtom<T>> for Pattern<T> {
+    fn from(value: PatternAtom<T>) -> Self {
+        Pattern::Atom(value)
+    }
+}
+
 // PatternAtom ::= char | num
-pub enum PatternAtom {
-    Byte(syn::LitByte),
-    Char(syn::LitChar),
-    Int(syn::LitInt),
-    Float(syn::LitFloat),
-    Bool(syn::LitBool),
-    Range(syn::ExprRange),
-    Class(syn::Path),
+#[derive(Debug, Clone)]
+pub enum PatternAtom<T: PatternChar> {
+    Primitive(T),
+    Range(Bound<T>, Bound<T>),
+}
+
+#[derive(Debug, Clone)]
+pub struct PatternClass {
+    pub path: syn::Path,
 }
 
 // PatternSeq ::= array | bstr | str
-pub struct PatternSeq {
-    pub atoms: Vec<PatternAtom>,
+#[derive(Debug, Clone)]
+pub struct PatternSeq<T: PatternChar> {
+    pub atoms: Vec<PatternAtom<T>>,
 }
 
-impl PatternSeq {
+impl<T: PatternChar> PatternSeq<T> {
     fn from_str(str: &syn::LitStr) -> syn::Result<Self> {
-        let atoms: Vec<PatternAtom> = str
+        let atoms = str
             .value()
             .chars()
-            .map(|e| -> syn::LitChar { syn::parse_quote!(#e) })
-            .map(|e| PatternAtom::Char(e))
-            .collect();
+            .map(|e| T::try_from_char(e).map(PatternAtom::Primitive))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|m| syn::Error::new(str.span(), m))?;
 
         if atoms.is_empty() {
             Err(syn::Error::new(
@@ -109,12 +147,12 @@ impl PatternSeq {
     }
 
     fn from_bstr(str: &syn::LitByteStr) -> syn::Result<Self> {
-        let atoms: Vec<PatternAtom> = str
+        let atoms: Vec<PatternAtom<T>> = str
             .value()
             .iter()
-            .map(|e| -> syn::LitInt { syn::parse_quote!(#e) })
-            .map(|e| PatternAtom::Int(e))
-            .collect();
+            .map(|&e| T::try_from_u8(e).map(PatternAtom::Primitive))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|m| syn::Error::new(str.span(), m))?;
 
         if atoms.is_empty() {
             Err(syn::Error::new(
@@ -127,8 +165,7 @@ impl PatternSeq {
     }
 
     fn from_array(arr: &syn::ExprArray) -> syn::Result<Self> {
-        use syn::Lit::*;
-        let atoms: Result<Vec<_>, _> = arr
+        let atoms = arr
             .elems
             .iter()
             .map(|e| {
@@ -139,24 +176,9 @@ impl PatternSeq {
                     ));
                 };
 
-                let p = match &e.lit {
-                    Byte(l) => PatternAtom::Byte(l.clone()),
-                    Char(l) => PatternAtom::Char(l.clone()),
-                    Int(l) => PatternAtom::Int(l.clone()),
-                    Float(l) => PatternAtom::Float(l.clone()),
-                    Bool(l) => PatternAtom::Bool(l.clone()),
-                    _ => {
-                        return Err(syn::Error::new(
-                            e.span(),
-                            "Array pattern element must be atom literal.",
-                        ));
-                    }
-                };
-                Ok(p)
+                T::try_from_lit(&e.lit).map(PatternAtom::Primitive)
             })
-            .collect();
-
-        let atoms = atoms?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         if atoms.is_empty() {
             Err(syn::Error::new(
@@ -170,56 +192,35 @@ impl PatternSeq {
 }
 
 // PatternJoin ::= pattern + "+" +  pattern
-pub struct PatternJoin {
-    pub lhs: Pattern,
-    pub rhs: Pattern,
+#[derive(Debug, Clone)]
+pub struct PatternJoin<T: PatternChar> {
+    pub lhs: Pattern<T>,
+    pub rhs: Pattern<T>,
 }
 
 // PatternOr ::= pattern + "|" + pattern
-pub struct PatternOr {
-    pub lhs: Pattern,
-    pub rhs: Pattern,
+#[derive(Debug, Clone)]
+pub struct PatternOr<T: PatternChar> {
+    pub lhs: Pattern<T>,
+    pub rhs: Pattern<T>,
 }
 
 // PatternRepeat ::=  "[" + pattern + ";" + range "]" "repeat!(" + pattern ")"  | "repeat!(" + pattern + "," + range + ")"
-pub struct PatternRepeat {
-    pub pattern: Pattern,
-    pub range: AnyRange,
-}
-
 #[derive(Debug, Clone)]
-pub struct AnyRange {
-    pub start: Option<usize>,
-    pub end: Option<usize>,
+pub struct PatternRepeat<T: PatternChar> {
+    pub pattern: Pattern<T>,
+    pub start: Bound<usize>,
+    pub end: Bound<usize>,
 }
 
-impl TryFrom<&syn::Expr> for AnyRange {
-    type Error = syn::Error;
-
-    fn try_from(value: &syn::Expr) -> Result<Self, Self::Error> {
-        match value {
-            syn::Expr::Range(e) => {
-                let start = e.start.as_ref().map(|e| eval_as_usize(&e)).transpose()?;
-                let end = e.end.as_ref().map(|e| eval_as_usize(&e)).transpose()?;
-
-                Ok(Self { start, end })
-            }
-            e => {
-                let count = eval_as_usize(e)?;
-                Ok(Self {
-                    start: Some(count),
-                    end: Some(count),
-                })
-            }
-        }
-    }
-}
-
-impl PatternRepeat {
+impl<T: PatternChar> PatternRepeat<T> {
     fn from_repeat(e: &syn::ExprRepeat) -> syn::Result<Self> {
+        let (start, end) = eval_as_range(&e.len)?;
+
         Ok(Self {
             pattern: Pattern::new(&e.expr)?,
-            range: AnyRange::try_from(e.len.as_ref())?,
+            start,
+            end,
         })
     }
 
@@ -231,23 +232,17 @@ impl PatternRepeat {
                 let pattern = Pattern::new(&e[0])?;
                 PatternRepeat {
                     pattern,
-                    range: AnyRange {
-                        start: None,
-                        end: None,
-                    },
+                    start: Bound::Unbounded,
+                    end: Bound::Unbounded,
                 }
             }
             2 => {
                 let pattern = Pattern::new(&e[0])?;
-                let syn::Expr::Range(range) = &e[1] else {
-                    return Err(syn::Error::new(e[1].span(), "Range literal was expected."));
-                };
-                let start = range.start.as_ref().map(|e| eval_as_usize(e)).transpose()?;
-                let end = range.end.as_ref().map(|e| eval_as_usize(e)).transpose()?;
-
+                let (start, end) = eval_as_range(&e[1])?;
                 PatternRepeat {
                     pattern,
-                    range: AnyRange { start, end },
+                    start,
+                    end,
                 }
             }
             _ => {
@@ -263,15 +258,16 @@ impl PatternRepeat {
 }
 
 // PatternCollect ::= "collect!(" + path  + "," + pattern ")"
-pub struct PatternCollect {
-    pub path: syn::Path,
-    pub pattern: Pattern,
+#[derive(Debug, Clone)]
+pub struct PatternCollect<T: PatternChar> {
+    pub field: String,
+    pub pattern: Pattern<T>,
 }
 
-impl PatternCollect {
+impl<T: PatternChar> PatternCollect<T> {
     fn from_mac(mac: &syn::Macro) -> syn::Result<Self> {
         let e = mac.parse_body_with(parser_fn(move |input| {
-            let path = syn::Path::parse(input)?;
+            let member = syn::Member::parse(input)?;
             let _ = <syn::Token![,]>::parse(input)?;
             let e = syn::Expr::parse(input)?;
             let pattern = Pattern::new(&e)?;
@@ -280,7 +276,12 @@ impl PatternCollect {
                 return Err(input.error("Unexpected arguments of `collect!`."));
             }
 
-            Ok(PatternCollect { path, pattern })
+            let field = match member {
+                syn::Member::Named(ident) => ident.to_string(),
+                syn::Member::Unnamed(index) => index.index.to_string(),
+            };
+
+            Ok(PatternCollect { field, pattern })
         }))?;
 
         Ok(e)

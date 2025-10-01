@@ -1,76 +1,133 @@
-pub enum RegenOptions {
-    BaseType(BaseType),
+use std::cell::LazyCell;
+
+use quote::format_ident;
+use syn::parse_quote;
+
+use crate::{base_type::BaseType, match_graph::MatchProp};
+
+pub struct RegenOptions {
+    base_type: BaseType,
+    allow_conflict: bool,
+    error_type: syn::Path,
+    resolver: PathResolver,
 }
 
 impl RegenOptions {
     pub fn base_type(&self) -> &BaseType {
-        match self {
-            RegenOptions::BaseType(base_type) => base_type,
-        }
+        &self.base_type
+    }
+
+    pub fn allow_conflict(&self) -> bool {
+        self.allow_conflict
+    }
+
+    pub fn error_type(&self) -> &syn::Path {
+        &self.error_type
+    }
+
+    pub fn resolver(&self) -> &PathResolver {
+        &self.resolver
     }
 }
 
-impl syn::parse::Parse for RegenOptions {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        Ok(RegenOptions::BaseType(input.parse::<BaseType>()?))
+pub fn strip_options(
+    item: &mut syn::ItemEnum,
+    base_type: BaseType,
+) -> Result<RegenOptions, syn::Error> {
+    let attrs = &mut item.attrs;
+    let mut i = 0;
+
+    let mut allow_conflict = false;
+    while i < attrs.len() {
+        let Some(ident) = attrs[i].meta.path().get_ident() else {
+            i += 1;
+            continue;
+        };
+
+        if ident == "allow_conflict" {
+            let attr = attrs.swap_remove(i);
+            attr.meta.require_path_only()?.require_ident()?;
+            allow_conflict = true;
+            continue;
+        }
+
+        i += 1;
     }
+
+    let resolver = PathResolver::new();
+    let error_type = resolver.default_match_error_type();
+
+    Ok(RegenOptions {
+        base_type,
+        allow_conflict,
+        error_type,
+        resolver,
+    })
 }
 
-pub enum BaseType {
-    Char,
-    U8,
-    U16,
-    U32,
-    U64,
+pub struct PathResolver {
+    regen_macro_lib: LazyCell<syn::Path>,
 }
 
-impl quote::ToTokens for BaseType {
-    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
-        match self {
-            BaseType::Char => kw::char::default().to_tokens(tokens),
-            BaseType::U8 => kw::u8::default().to_tokens(tokens),
-            BaseType::U16 => kw::u16::default().to_tokens(tokens),
-            BaseType::U32 => kw::u32::default().to_tokens(tokens),
-            BaseType::U64 => kw::u64::default().to_tokens(tokens),
+impl PathResolver {
+    fn new() -> Self {
+        Self {
+            regen_macro_lib: LazyCell::new(|| parse_quote!(::regen::__internal_macro)),
         }
     }
-}
 
-mod kw {
-    syn::custom_keyword!(char);
-    syn::custom_keyword!(u8);
-    syn::custom_keyword!(u16);
-    syn::custom_keyword!(u32);
-    syn::custom_keyword!(u64);
-}
+    fn regen_macro_lib(&self) -> &syn::Path {
+        &*self.regen_macro_lib
+    }
 
-impl syn::parse::Parse for BaseType {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        if input.peek(kw::char) {
-            input.parse::<kw::char>().unwrap();
-            return Ok(BaseType::Char);
-        }
+    pub fn advance_result_type(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::AdvanceResult)
+    }
 
-        if input.peek(kw::u8) {
-            input.parse::<kw::u8>().unwrap();
-            return Ok(BaseType::U8);
-        }
+    pub fn complete_result_type(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::CompleteResult)
+    }
 
-        if input.peek(kw::u16) {
-            input.parse::<kw::u16>().unwrap();
-            return Ok(BaseType::U16);
-        }
+    pub fn default_match_error_type(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::MatchError)
+    }
 
-        if input.peek(kw::u32) {
-            input.parse::<kw::u32>().unwrap();
-            return Ok(BaseType::U32);
-        }
+    pub fn state_machine_error_trait(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::StateMachineError)
+    }
 
-        if input.peek(kw::u64) {
-            input.parse::<kw::u64>().unwrap();
-            return Ok(BaseType::U64);
-        }
+    pub fn state_machine_trait(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::StateMachine)
+    }
 
-        Err(input.error("expected u8, u16, u32, or u64."))
+    pub fn from_char_seq_trait(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::FromCharSequence)
+    }
+
+    pub fn from_char_seq_builder_trait(&self) -> syn::Path {
+        let lib = self.regen_macro_lib();
+        parse_quote!(#lib::FromCharSequenceBuilder)
+    }
+
+    pub fn state_machine_name(&self, item: &syn::ItemEnum) -> syn::Ident {
+        format_ident!("__regen_macro_state_machine_{}", item.ident)
+    }
+
+    pub fn state_machine_state_name(&self, item: &syn::ItemEnum) -> syn::Ident {
+        format_ident!("__regen_macro_state_machine_{}State", item.ident)
+    }
+
+    pub fn variant_name(&self, state_index: usize) -> syn::Ident {
+        quote::format_ident!("State_{}", state_index)
+    }
+
+    pub fn variant_field_name(&self, prop: &MatchProp) -> syn::Ident {
+        quote::format_ident!("_{}_{}", prop.assoc, prop.field)
     }
 }

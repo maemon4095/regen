@@ -1,74 +1,68 @@
+mod base_type;
+mod declares;
 mod expr;
 mod generate;
-mod match_tree;
+mod linkedlist;
+mod match_graph;
 mod pattern;
+mod regen_args;
 mod regen_options;
+mod regen_prelude;
+mod resolved_pattern;
+mod util;
+mod variant_pattern;
 
+use crate::{
+    base_type::BaseType, declares::Declares, expr::PatternChar, generate::generate_state_machine,
+    regen_options::strip_options, regen_prelude::strip_prelude,
+    variant_pattern::strip_variant_attrs,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
-use regen_options::RegenOptions;
-use syn::spanned::Spanned;
-
-use crate::{generate::generate_state_machine_impl, pattern::Pattern};
+use regen_args::RegenArgs;
 
 pub fn regen(attr: TokenStream, body: TokenStream) -> TokenStream {
-    let options: RegenOptions = match syn::parse2(attr) {
+    let options: RegenArgs = match syn::parse2(attr) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error(),
     };
 
-    let mut item: syn::ItemEnum = match syn::parse2(body) {
+    let item: syn::ItemEnum = match syn::parse2(body) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error(),
     };
 
-    let pairs = match strip_patterns(&mut item) {
+    match options.base_type() {
+        BaseType::Char => gen_impl::<char>(options, item),
+        BaseType::U8 => gen_impl::<u8>(options, item),
+        BaseType::U16 => gen_impl::<u16>(options, item),
+        BaseType::U32 => gen_impl::<u32>(options, item),
+        BaseType::U64 => gen_impl::<u64>(options, item),
+    }
+}
+
+fn gen_impl<T: PatternChar>(args: RegenArgs, mut item: syn::ItemEnum) -> TokenStream {
+    let options = match strip_options(&mut item, args.base_type().clone()) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error(),
     };
 
-    let state_machine_impl = generate_state_machine_impl(&item, &options, pairs);
+    let prelude = match strip_prelude(&mut item) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error(),
+    };
+
+    let variants = match strip_variant_attrs(&mut item) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error(),
+    };
+
+    let state_machine = generate_state_machine::<T>(&options, &item, prelude, variants);
 
     quote! {
         #item
-        #state_machine_impl
+        #state_machine
     }
-}
-
-fn strip_patterns(item: &mut syn::ItemEnum) -> Result<Vec<VariantPatternPair>, syn::Error> {
-    let mut buf = Vec::new();
-    for v in &mut item.variants {
-        let mut attrs = v.attrs.extract_if(.., |a| {
-            let Some(ident) = a.meta.path().get_ident() else {
-                return false;
-            };
-
-            ident == "pattern"
-        });
-
-        let Some(attr) = attrs.next() else {
-            continue;
-        };
-
-        if let Some(a) = attrs.next() {
-            return Err(syn::Error::new(a.span(), "Duplicated pattern attributes."));
-        }
-
-        drop(attrs);
-
-        let name_value = attr.meta.require_name_value()?;
-        let pattern = Pattern::new(&name_value.value)?;
-        buf.push(VariantPatternPair {
-            pattern,
-            variant: v.clone(),
-        });
-    }
-    Ok(buf)
-}
-
-struct VariantPatternPair {
-    pub pattern: Pattern,
-    pub variant: syn::Variant,
 }
 
 #[cfg(test)]
@@ -82,18 +76,27 @@ mod test {
         };
 
         let body: TokenStream = syn::parse_quote! {
+            #[allow_conflict]
             #[derive(Default)]
+            #[declare {
+                p = [0; ..];
+            }]
             pub enum Test {
-                #[pattern = repeat!("a", 1..) + repeat!("a" | "b") + char::class]
+                #[declare(p = 1)]
+                #[pattern = collect!(x, repeat!(0, 1..)) + repeat!(1 | 2) + p]
                 #[default]
-                A,
-
+                A { x: String },
             }
         };
 
         let tokens = regen(attr, body);
-
-        let file: syn::File = syn::parse2(tokens).unwrap();
+        let file: syn::File = match syn::parse2(tokens) {
+            Ok(v) => v,
+            Err(e) => {
+                println!("{e:?}");
+                todo!()
+            }
+        };
 
         println!("{}", prettyplease::unparse(&file));
     }
