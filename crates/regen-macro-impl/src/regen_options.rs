@@ -1,4 +1,4 @@
-use crate::{base_type::BaseType, match_graph::MatchProp};
+use crate::{base_type::BaseType, match_graph::MatchProp, regen_args::RegenArgs};
 use quote::{ToTokens, format_ident, quote};
 use syn::{parse_quote, spanned::Spanned as _};
 
@@ -24,7 +24,7 @@ impl RegenOptions {
 
 pub fn strip_options(
     item: &mut syn::ItemEnum,
-    base_type: BaseType,
+    args: RegenArgs,
 ) -> Result<RegenOptions, syn::Error> {
     let attrs = &mut item.attrs;
     let mut i = 0;
@@ -46,10 +46,13 @@ pub fn strip_options(
         i += 1;
     }
 
-    let resolver = PathResolver::new(base_type.clone());
-    let error_type = {
-        let ty = resolver.default_match_error_type();
-        parse_quote!(#ty)
+    let resolver = PathResolver::new(args.base_type().clone());
+    let error_type = match args.error_type() {
+        Some(v) => v.clone(),
+        None => {
+            let tokens = resolver.default_error_type();
+            syn::parse_quote!(#tokens)
+        }
     };
 
     Ok(RegenOptions {
@@ -127,14 +130,14 @@ impl PathResolver {
         quote!(#lib::CompleteResult)
     }
 
-    pub fn default_match_error_type(&self) -> impl ToTokens {
+    pub fn match_error_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
         quote!(#lib::MatchError)
     }
 
-    pub fn state_machine_error_trait(&self) -> impl ToTokens {
+    pub fn default_error_type(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
-        quote!(#lib::StateMachineError)
+        quote!(#lib::std::Box<dyn #lib::std::Error>)
     }
 
     pub fn state_machine_trait(&self) -> impl ToTokens {

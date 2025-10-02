@@ -45,7 +45,7 @@ pub fn regen(attr: TokenStream, body: TokenStream) -> TokenStream {
 }
 
 fn gen_impl<T: PatternChar>(args: RegenArgs, mut item: syn::ItemEnum) -> TokenStream {
-    let options = match strip_options(&mut item, args.base_type().clone()) {
+    let options = match strip_options(&mut item, args) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error(),
     };

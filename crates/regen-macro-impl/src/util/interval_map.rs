@@ -101,7 +101,7 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
             .map(Some)
             .chain([None])
             .scan(Some((None, &self.lower)), |state, upper| {
-                let Some((last_lower_bound, last_assoc)) = std::mem::replace(state, None) else {
+                let Some((last_lower_bound, last_assoc)) = state.take() else {
                     return None;
                 };
                 match upper {

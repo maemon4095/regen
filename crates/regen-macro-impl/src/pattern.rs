@@ -268,7 +268,7 @@ impl<T: PatternChar> PatternCollect<T> {
     fn from_mac(mac: &syn::Macro) -> syn::Result<Self> {
         let e = mac.parse_body_with(parser_fn(move |input| {
             let member = syn::Member::parse(input)?;
-            let _ = <syn::Token![,]>::parse(input)?;
+            let _ = <syn::Token![<-]>::parse(input)?;
             let e = syn::Expr::parse(input)?;
             let pattern = Pattern::new(&e)?;
 

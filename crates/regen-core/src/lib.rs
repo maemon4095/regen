@@ -28,26 +28,10 @@ pub enum CompleteResult<T, E> {
     Match(T, usize),
 }
 
-pub trait StateMachineError {
-    fn not_matched() -> Self;
-}
-
-#[derive(Debug)]
-pub enum MatchError {
+#[derive(Debug, PartialEq, Eq)]
+pub enum MatchError<E = Box<dyn std::error::Error>> {
     NotMatched,
-    Collect(Box<dyn std::error::Error>),
-}
-
-impl StateMachineError for MatchError {
-    fn not_matched() -> Self {
-        Self::NotMatched
-    }
-}
-
-impl<T: 'static + std::error::Error> From<T> for MatchError {
-    fn from(value: T) -> Self {
-        MatchError::Collect(value.into())
-    }
+    Collect(E),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
