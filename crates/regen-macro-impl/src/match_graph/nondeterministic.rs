@@ -13,8 +13,6 @@ use crate::{
 
 // 関数を使ったclassも、含む含まないの全パターン列挙することでDFAにできるが、ステートが爆発的に増えるため追加しない。
 
-// TODO: collectのfieldの扱いが間違っているはず。マッチが完全に完了するまではステート自体は必要で、追加するかどうかのみが変わるはず。
-
 #[derive(Debug)]
 pub struct MatchGraph<T: PatternChar> {
     pub(super) states: Vec<MatchState<T>>,

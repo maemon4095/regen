@@ -16,7 +16,6 @@ pub fn generate_state_machine<T: PatternChar>(
     let error_type = options.error_type();
     let state_machine_name = resolver.state_machine_type_name(item);
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
-    let default_trait = resolver.default_trait();
 
     let mut builder = match_graph::Builder::new();
 
@@ -32,19 +31,62 @@ pub fn generate_state_machine<T: PatternChar>(
     }
 
     let graph = builder.build();
+    let errors = match error_check(options, item, prelude, &graph) {
+        Ok(v) => v,
+        Err(e) => return  e.into_compile_error(),
+    };
 
-        dbg!(graph.states().len());
+    let state_variants = graph
+        .states()
+        .iter()
+        .enumerate()
+        .map(|(i, e)| generate_state_variant(options, item, i, e));
 
-    if !options.allow_conflict() {
-        let conflictions: Vec<_> = graph
+    let dead_state_variant = resolver.dead_state_variant_name(); 
+    let state_machine_impl = generate_state_machine_impl(options, item, &graph);
+    let default_impl = generate_default_impl(options, item, &graph);
+
+    quote! {
+        #errors
+
+        impl ::regen::__internal_macro::Parse<#base_type> for #ident {
+            type Error = #error_type;
+            type StateMachine = #state_machine_name;
+        }
+
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        struct #state_machine_name {
+            state: #state_machine_state_name
+        }
+
+        #[doc(hidden)]
+        #[allow(non_camel_case_types)]
+        enum #state_machine_state_name {
+            #(#state_variants,)*
+            #dead_state_variant
+        }
+
+        #default_impl
+
+        #state_machine_impl
+    }
+}
+
+fn error_check<T: PatternChar>(
+    options: &RegenOptions,
+    item: &syn::ItemEnum,
+    _prelude: RegenPrelude<T>,
+    graph: &MatchGraph<T>
+    ) -> syn::Result<TokenStream> {
+        let errors = (!options.allow_conflict()).then(|| {
+            let conflictions: Vec<_> = graph
             .states()
             .iter()
-            .filter_map(|s| (s.assoc().len() > 1).then_some(s.assoc()))
+            .filter(|s| s.assoc().len() > 1)
             .collect();
-
-        if conflictions.len() > 0 {
-            let errors = conflictions.iter().map(|vs| {
-                let mut iter = vs.iter().map(|v| &item.variants[*v].ident).peekable();
+            let errors = conflictions.iter().map(|state| {
+                let mut iter = state.assoc().iter().map(|v| &item.variants[*v].ident).peekable();
                 let mut buf = String::new();
 
                 let first = iter.next().unwrap();
@@ -70,52 +112,45 @@ pub fn generate_state_machine<T: PatternChar>(
                 )
                 .into_compile_error()
             });
-
-            return quote! {
+            quote! {
                 #(#errors)*
-            };
-        }
-    }
+            }
+        }).into_iter();
 
-    let state_variants = graph
-        .states()
-        .iter()
-        .enumerate()
-        .map(|(i, e)| generate_state_variant(options, item, i, e));
+    Ok(quote! {
+        #(#errors)*
+    })
+}
 
-    let dead_state_variant = resolver.dead_state_variant_name();
+fn generate_default_impl<T: PatternChar>(
+    options: &RegenOptions,
+    item: &syn::ItemEnum, 
+    graph: &MatchGraph<T>
+) -> TokenStream {
+    let resolver = options.resolver();
+    let default_trait = resolver.default_trait();
+    let state_machine_name = resolver.state_machine_type_name(item);
+    let state_machine_state_name = resolver.state_machine_state_type_name(item);
     let initial_state_variant = resolver.state_variant_name(0);
+    let initial_state = &graph.states()[0];
 
-    let state_machine_impl = generate_state_machine_impl(options, item, &graph);
+    let field_inits = initial_state.props().iter().map(|prop| {
+        let field = resolver.state_field_name(prop);
+        quote! {
+            #field : #default_trait::default()
+        }
+    });
 
     quote! {
-        impl ::regen::__internal_macro::Parse<#base_type> for #ident {
-            type Error = #error_type;
-            type StateMachine = #state_machine_name;
-        }
-
-        #[doc(hidden)]
-        #[allow(non_camel_case_types)]
-        struct #state_machine_name {
-            state: #state_machine_state_name
-        }
-
-        #[doc(hidden)]
-        #[allow(non_camel_case_types)]
-        enum #state_machine_state_name {
-            #(#state_variants,)*
-            #dead_state_variant
-        }
-
         impl #default_trait for #state_machine_name {
             fn default() -> Self {
                 Self {
-                    state: #state_machine_state_name::#initial_state_variant { }
+                    state: #state_machine_state_name::#initial_state_variant { 
+                        #(#field_inits),*
+                    }
                 }
             }
         }
-
-        #state_machine_impl
     }
 }
 
@@ -246,7 +281,7 @@ fn generate_advance_impl<T: PatternChar>(
                             }
                         });
 
-                        let fields = dst_state.props().iter().filter(|p| p.assoc == assoc).map(|p|format_ident!("{}", &p.field));
+                        let fields = dst_state.props().iter().filter(|p| p.assoc == assoc).map(|p| format_ident!("{}", &p.field));
 
                         quote! {
                             #(#declares)*
@@ -288,7 +323,6 @@ fn generate_advance_impl<T: PatternChar>(
                 match c {
                     #(#branches)*
                     _ => {
-                        self.state = #state_type_name::#dead_state;
                         #advance_result_type::Error(<#error_type as #state_machine_error>::not_matched())
                     }
                 }

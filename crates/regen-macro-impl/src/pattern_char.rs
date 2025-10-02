@@ -1,8 +1,10 @@
+use std::fmt::Debug;
+
 use quote::ToTokens;
 
 use crate::util::Discrete;
 
-pub trait PatternChar: Ord + Copy + Eq + ToTokens + Discrete {
+pub trait PatternChar: Ord + Copy + Eq + ToTokens + Discrete + Debug {
     fn try_from_lit(lit: &syn::Lit) -> Result<Self, syn::Error>;
     fn try_from_char(c: char) -> Result<Self, &'static str>;
     fn try_from_u8(b: u8) -> Result<Self, &'static str>;

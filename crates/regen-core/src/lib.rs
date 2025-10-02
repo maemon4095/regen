@@ -18,6 +18,7 @@ pub trait StateMachine<T>: Default {
 pub enum AdvanceResult<T, E> {
     Error(E),
     Partial(usize),
+    Rewind(usize),
     Match(T, usize),
 }
 

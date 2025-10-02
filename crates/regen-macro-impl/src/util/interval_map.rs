@@ -2,10 +2,10 @@ pub mod store;
 
 use std::{
     collections::BTreeMap,
-    ops::{Bound, Range, RangeFrom, RangeFull, RangeTo},
+    ops::{Bound, Range, RangeFrom, RangeFull, RangeTo, RangeToInclusive},
 };
 
-use crate::util::{Iterable, interval_map::store::Store};
+use crate::util::{Discrete, Iterable, interval_map::store::Store};
 
 #[derive(Debug)]
 pub struct IntervalMap<K: Ord + Clone, V: Clone, C: Store<V>> {
@@ -45,8 +45,8 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
                 if !self.divs.contains_key(&k) {
                     let vs = self
                         .divs
-                        .range(k..)
-                        .next()
+                        .range(..k)
+                        .last()
                         .map(|e| e.1)
                         .unwrap_or(&self.lower);
 
@@ -65,8 +65,8 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
                 if !self.divs.contains_key(&k) {
                     let vs = self
                         .divs
-                        .range(k..)
-                        .next()
+                        .range(..k)
+                        .last()
                         .map(|e| e.1)
                         .unwrap_or(&self.lower);
 
@@ -90,19 +90,8 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
     }
 
     pub fn append(&mut self, other: &IntervalMap<K, V, C>) {
-        let mut iter = other.divs.iter();
-        let mut lower_bound = None;
-        let mut states = &other.lower;
-        loop {
-            let Some((upper_bound, s)) = iter.next() else {
-                self.insert_ropen(lower_bound, None, states);
-                break;
-            };
-
-            self.insert_ropen(lower_bound, Some(upper_bound.clone()), states);
-
-            lower_bound = Some(upper_bound.clone());
-            states = s;
+        for (from, to, s) in other.iter() {
+            self.insert_ropen(from.cloned(), to.cloned(), s);
         }
     }
 
@@ -148,6 +137,12 @@ impl<T> Interval<T> for RangeTo<T> {
     }
 }
 
+impl<T: Discrete> Interval<T> for RangeToInclusive<T> {
+    fn into_ropen(self) -> (Option<T>, Option<T>) {
+        (None, self.end.next_up())
+    }
+}
+
 impl<T> Interval<T> for RangeFull {
     fn into_ropen(self) -> (Option<T>, Option<T>) {
         (None, None)
@@ -162,5 +157,34 @@ impl<T> Interval<T> for Range<T> {
 impl<T> Interval<T> for (Option<T>, Option<T>) {
     fn into_ropen(self) -> (Option<T>, Option<T>) {
         self
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::collections::BTreeSet;
+
+    use super::*;
+
+    #[test]
+    fn test() {
+        let mut map = IntervalMap::<u8, usize, store::Set>::new();
+
+        map.insert(98..99, &[2]);
+
+        assert!(map.iter().eq([
+            (None, Some(&98), &BTreeSet::from_iter([])),
+            (Some(&98), Some(&99), &BTreeSet::from_iter([2])),
+            (Some(&99), None, &BTreeSet::from_iter([])),
+        ]));
+
+        map.insert(97..98, &[1]);
+
+        assert!(map.iter().eq([
+            (None, Some(&97), &BTreeSet::from_iter([])),
+            (Some(&97), Some(&98), &BTreeSet::from_iter([1])),
+            (Some(&98), Some(&99), &BTreeSet::from_iter([2])),
+            (Some(&99), None, &BTreeSet::from_iter([])),
+        ]));
     }
 }

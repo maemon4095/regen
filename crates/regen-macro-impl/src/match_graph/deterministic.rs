@@ -65,6 +65,7 @@ fn create_branches<T: PatternChar>(
     state: &EpsilonClosure,
 ) -> MatchBranches<T> {
     let mut branches: nondeterministic::MatchBranches<T> = Default::default();
+
     for &s in state.states.iter() {
         branches.append(&graph.states[s].branches)
     }
@@ -74,7 +75,9 @@ fn create_branches<T: PatternChar>(
         if s.is_empty() {
             continue;
         }
+
         let closure = epsilon_closure(graph, s.iter().copied());
+
         let id = context.get_id(&closure);
 
         let id = match id {
@@ -180,18 +183,5 @@ impl<T: PatternChar> ConvertionContext<T> {
         self.unchecked.push(closure);
         self.states.push(MatchState::new());
         id
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test() {
-        let ndgraph = nondeterministic::MatchGraph::<u8>::new();
-        dbg!(&ndgraph);
-        let graph = MatchGraph::from_nondeterministic(&ndgraph);
-        dbg!(graph);
     }
 }

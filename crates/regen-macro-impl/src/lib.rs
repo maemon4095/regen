@@ -73,33 +73,6 @@ mod test {
     pub use super::*;
 
     #[test]
-    fn test() {
-        let attr: TokenStream = syn::parse_quote! {
-            u8
-        };
-
-        let body: TokenStream = syn::parse_quote! {
-            #[allow_conflict]
-            #[derive(Default)]
-            #[declare {
-                p = [0; ..];
-            }]
-            pub enum Test {
-                #[declare(p = 1)]
-                #[pattern = collect!(x, repeat!(0, 1..)) + repeat!(1 | 2) + p]
-                #[default]
-                A { x: String },
-            }
-        };
-
-        let tokens = regen(attr, body);
-        println!("{}", tokens);
-        let file: syn::File = syn::parse2(tokens).unwrap();
-
-        println!("{}", prettyplease::unparse(&file));
-    }
-
-    #[test]
     fn test_conflict() {
         let attr: TokenStream = syn::parse_quote! {
             u8
@@ -117,14 +90,28 @@ mod test {
         };
 
         let tokens = regen(attr, body);
-        let file: syn::File = match syn::parse2(tokens) {
-            Ok(v) => v,
-            Err(e) => {
-                println!("{e:?}");
-                todo!()
-            }
-        };
+        let file: syn::File = syn::parse2(tokens).unwrap();
 
-        println!("{}", prettyplease::unparse(&file));
+        let x = file.items.iter().find_map(|e| match e {
+            syn::Item::Macro(item_macro) => {
+                if item_macro.mac.path == syn::parse_quote!(::core::compile_error) {
+                    item_macro
+                        .mac
+                        .parse_body::<syn::LitStr>()
+                        .ok()
+                        .map(|e| e.value())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+
+        assert_eq!(
+            x,
+            Some(String::from(
+                "The following patterns are conflicting: `A` and `B`"
+            ))
+        );
     }
 }
