@@ -163,7 +163,7 @@ fn generate_state_variant<T: PatternChar>(
 ) -> TokenStream {
     let resolver = options.resolver();
     let fields = state.props().iter().map(|prop| {
-        let field_name = resolver.state_field_name(&prop);
+        let field_name = resolver.state_field_name(prop);
         let ty = resolver.state_field_type(item, prop);
 
         quote! {

@@ -114,8 +114,8 @@ impl<T: PatternChar> MatchGraph<T> {
         props: &mut Vec<MatchProp>,
     ) -> usize {
         let state = self.insert_impl(state, assoc, &pattern.lhs, collects.clone(), props);
-        let state = self.insert_impl(state, assoc, &pattern.rhs, collects, props);
-        state
+        
+        self.insert_impl(state, assoc, &pattern.rhs, collects, props)
     }
 
     fn insert_or(

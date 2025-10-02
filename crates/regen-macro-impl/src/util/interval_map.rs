@@ -42,7 +42,7 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
     ) {
         let lower_bound = match &from {
             Some(k) => {
-                if !self.divs.contains_key(&k) {
+                if !self.divs.contains_key(k) {
                     let vs = self
                         .divs
                         .range(..k)
@@ -62,7 +62,7 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
 
         let upper_bound = match &to {
             Some(k) => {
-                if !self.divs.contains_key(&k) {
+                if !self.divs.contains_key(k) {
                     let vs = self
                         .divs
                         .range(..k)
@@ -101,9 +101,7 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
             .map(Some)
             .chain([None])
             .scan(Some((None, &self.lower)), |state, upper| {
-                let Some((last_lower_bound, last_assoc)) = state.take() else {
-                    return None;
-                };
+                let (last_lower_bound, last_assoc) = state.take()?;
                 match upper {
                     Some((upper_bound, assoc)) => {
                         *state = Some((Some(upper_bound), assoc));

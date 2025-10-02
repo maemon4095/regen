@@ -47,8 +47,8 @@ pub fn eval_as_range(expr: &syn::Expr) -> syn::Result<(Bound<usize>, Bound<usize
 
             let end = match &e.end {
                 Some(v) => match e.limits {
-                    syn::RangeLimits::HalfOpen(_) => Bound::Excluded(eval_as_usize(&v)?),
-                    syn::RangeLimits::Closed(_) => Bound::Included(eval_as_usize(&v)?),
+                    syn::RangeLimits::HalfOpen(_) => Bound::Excluded(eval_as_usize(v)?),
+                    syn::RangeLimits::Closed(_) => Bound::Included(eval_as_usize(v)?),
                 },
                 None => Bound::Unbounded,
             };
