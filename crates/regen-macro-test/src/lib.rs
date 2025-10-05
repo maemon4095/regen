@@ -25,7 +25,7 @@ enum DecimalUsize {
 #[derive(Debug, PartialEq, Eq)]
 #[regen(char)]
 enum Complex {
-    #[pattern = collect!(_digits <- ['0'..'9'; 1..]) 
+    #[pattern = collect!(_digits <- ['0'..='9'; 1..]) 
             | ("0" + collect!(_radix <- "b") + collect!(_digits <- [('0' | '1'); 1..]))
             | ("0" + collect!(_radix <- "o") + collect!(_digits <- ['0'..='7'; 1..]))
             | ("0" + collect!(_radix <- "x") + collect!(_digits <- [('0'..='9') | ('A'..='F') | ('a'..='f'); 1..]))]
