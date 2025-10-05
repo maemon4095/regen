@@ -185,7 +185,7 @@ mod test {
     }
 
     #[test]
-    fn test_complex() {
+    fn test_complex_decimal() {
         let mut machine = <Complex as Parse<char>>::StateMachine::default();
 
         let r = machine.advance('0');
@@ -213,6 +213,51 @@ mod test {
             AdvanceResult::Error => {
                 let e = machine.current().unwrap_err();
                 assert!(matches!(e, MatchError::NotMatched));
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_complex_hex() {
+        let mut machine = <Complex as Parse<char>>::StateMachine::default();
+
+        let r = machine.advance('0');
+        match r {
+            AdvanceResult::Match(c) => {
+                let v = machine.current().unwrap();
+                assert_eq!(v, Complex::Digits { _radix: Radix::Decimal, _digits: format!("0") });
+                assert_eq!(c, 1);
+            }
+            _ => unreachable!(),
+        }
+
+        let r = machine.advance('x');
+        match r {
+            AdvanceResult::Partial(c) => {
+                let e = machine.current().unwrap_err(); 
+                assert!(matches!(e, MatchError::NotMatched));
+                assert_eq!(c, 1);
+            }
+            _ => unreachable!(),
+        }
+
+        let r = machine.advance('F');
+        match r {
+            AdvanceResult::Match(c) => {
+                let v = machine.current().unwrap();
+                assert_eq!(v, Complex::Digits { _radix: Radix::Hexadecimal, _digits: format!("F") });
+                assert_eq!(c, 1);
+            }
+            _ => unreachable!(),
+        }
+
+        let r = machine.advance('E');
+        match r {
+            AdvanceResult::Match(c) => {
+                let v = machine.current().unwrap();
+                assert_eq!(v, Complex::Digits { _radix: Radix::Hexadecimal, _digits: format!("FE") });
+                assert_eq!(c, 1);
             }
             _ => unreachable!(),
         }

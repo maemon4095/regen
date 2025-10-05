@@ -259,6 +259,14 @@ fn generate_advance_impl<T: PatternChar>(
                     }
                 });
 
+                // 一度collectの対象になった後、再びcollectの対象になった場合（前のステートでcollect対象ではなく、なおかつpropに存在する場合）にbuilderをリセットする。
+                let re_collect_fields_init = dst_state.collects().iter().filter(|p| state.props().contains(p) && !state.collects().contains(p)).map(|prop| {
+                    let field = resolver.state_field_name(prop);
+                    quote! {
+                        let mut #field = #default_trait::default(); 
+                    }
+                });
+
                 let fields = dst_state.props().iter().map(|prop| resolver.state_field_name(prop));
 
                 let updates = dst_state.collects().iter().map(|prop| {
@@ -284,6 +292,8 @@ fn generate_advance_impl<T: PatternChar>(
                 quote! {
                     #start..#end => {
                         #(#introduced_fields_init)*
+
+                        #(#re_collect_fields_init)*
 
                         #(#updates)*
 
