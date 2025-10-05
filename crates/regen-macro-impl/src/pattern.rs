@@ -124,69 +124,68 @@ pub struct PatternClass {
 // PatternSeq ::= array | bstr | str
 #[derive(Debug, Clone)]
 pub struct PatternSeq<T: PatternChar> {
-    pub atoms: Vec<PatternAtom<T>>,
+    pub patterns: Vec<Pattern<T>>,
 }
 
 impl<T: PatternChar> PatternSeq<T> {
     fn from_str(str: &syn::LitStr) -> syn::Result<Self> {
-        let atoms = str
+        let patterns = str
             .value()
             .chars()
-            .map(|e| T::try_from_char(e).map(PatternAtom::Primitive))
+            .map(|e| {
+                T::try_from_char(e)
+                    .map(PatternAtom::Primitive)
+                    .map(Pattern::Atom)
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|m| syn::Error::new(str.span(), m))?;
 
-        if atoms.is_empty() {
+        if patterns.is_empty() {
             Err(syn::Error::new(
                 str.span(),
                 "Sequence pattern must not be empty.",
             ))
         } else {
-            Ok(PatternSeq { atoms })
+            Ok(PatternSeq { patterns })
         }
     }
 
     fn from_bstr(str: &syn::LitByteStr) -> syn::Result<Self> {
-        let atoms: Vec<PatternAtom<T>> = str
+        let patterns = str
             .value()
             .iter()
-            .map(|&e| T::try_from_u8(e).map(PatternAtom::Primitive))
+            .map(|&e| {
+                T::try_from_u8(e)
+                    .map(PatternAtom::Primitive)
+                    .map(Pattern::Atom)
+            })
             .collect::<Result<Vec<_>, _>>()
             .map_err(|m| syn::Error::new(str.span(), m))?;
 
-        if atoms.is_empty() {
+        if patterns.is_empty() {
             Err(syn::Error::new(
                 str.span(),
                 "Sequence pattern must not be empty.",
             ))
         } else {
-            Ok(PatternSeq { atoms })
+            Ok(PatternSeq { patterns })
         }
     }
 
     fn from_array(arr: &syn::ExprArray) -> syn::Result<Self> {
-        let atoms = arr
+        let patterns = arr
             .elems
             .iter()
-            .map(|e| {
-                let syn::Expr::Lit(e) = e else {
-                    return Err(syn::Error::new(
-                        e.span(),
-                        "Array pattern element must be atom literal.",
-                    ));
-                };
-
-                T::try_from_lit(&e.lit).map(PatternAtom::Primitive)
-            })
+            .map(|e| Pattern::new(e))
             .collect::<Result<Vec<_>, _>>()?;
 
-        if atoms.is_empty() {
+        if patterns.is_empty() {
             Err(syn::Error::new(
                 arr.span(),
                 "Sequence pattern must not be empty.",
             ))
         } else {
-            Ok(PatternSeq { atoms })
+            Ok(PatternSeq { patterns })
         }
     }
 }

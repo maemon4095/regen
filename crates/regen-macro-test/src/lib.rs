@@ -9,12 +9,14 @@ enum PartialMatch {
     X { _x: String },
     #[pattern = collect!(_x <- [b"a"; ..])]
     Y { _x: String },
+    #[pattern = collect!(_x <- [b'a', b"c"])]
+    Z { _x: String }
 }
 
 #[derive(Debug, PartialEq, Eq)]
 #[regen(char, ParseIntError)]
 enum DecimalUsize {
-    #[pattern = collect!(_num <- ['0'..'9'; 1..])]
+    #[pattern = collect!(_num <- ['0'..='9'; 1..])]
     Decimal {
         _num: usize
     }

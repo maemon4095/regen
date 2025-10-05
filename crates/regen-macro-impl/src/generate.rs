@@ -405,10 +405,9 @@ fn generate_current_impl<T: PatternChar>(
                     let state_field = resolver.state_field_name(prop);
                     
                     quote! {
-                        let #field = match <_ as #from_char_seq_builder_trait<#base_type>>::build(#state_field) {
-                            #result_type::Ok(v) => v,
-                            #result_type::Err(e) => return #result_type::Err(#match_error_type::Collect(<_ as #into_trait<_>>::into(e)))
-                        };
+                        let #field = <_ as #from_char_seq_builder_trait<#base_type>>::build(#state_field).map_err(|e| {
+                            #match_error_type::Collect(<_ as #into_trait<_>>::into(e))
+                        })?;
                     }
                 });
 

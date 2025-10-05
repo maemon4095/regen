@@ -66,7 +66,7 @@ impl<T: PatternChar> MatchGraph<T> {
     ) -> usize {
         match pattern {
             Pattern::Atom(p) => self.insert_atom(state, p, collects, props),
-            Pattern::Seq(p) => self.insert_seq(state, p, collects, props),
+            Pattern::Seq(p) => self.insert_seq(state, assoc, p, collects, props),
             Pattern::Join(p) => self.insert_join(state, assoc, p, collects, props),
             Pattern::Or(p) => self.insert_or(state, assoc, p, collects, props),
             Pattern::Repeat(p) => self.insert_repeat(state, assoc, p, collects, props),
@@ -95,12 +95,13 @@ impl<T: PatternChar> MatchGraph<T> {
     fn insert_seq(
         &mut self,
         mut state: usize,
+        assoc: usize,
         pattern: &PatternSeq<T>,
         collects: LinkedList<MatchProp>,
         props: &mut Vec<MatchProp>,
     ) -> usize {
-        for p in &pattern.atoms {
-            state = self.insert_atom(state, p, collects.clone(), props);
+        for p in &pattern.patterns {
+            state = self.insert_impl(state, assoc, p, collects.clone(), props);
         }
         state
     }
@@ -114,7 +115,7 @@ impl<T: PatternChar> MatchGraph<T> {
         props: &mut Vec<MatchProp>,
     ) -> usize {
         let state = self.insert_impl(state, assoc, &pattern.lhs, collects.clone(), props);
-        
+
         self.insert_impl(state, assoc, &pattern.rhs, collects, props)
     }
 
