@@ -1,5 +1,7 @@
+use std::collections::HashMap;
+
 use crate::{
-     match_graph::{self, MatchGraph, MatchState}, pattern_char::PatternChar, regen_options::RegenOptions, regen_prelude::RegenPrelude, resolved_pattern::ResolvedPattern, variant_pattern::VariantPattern
+     field_attibute::FieldAttribute, match_graph::{self, MatchGraph, MatchState}, pattern_char::PatternChar, regen_options::RegenOptions, regen_prelude::RegenPrelude, resolved_pattern::ResolvedPattern, variant_pattern::VariantPattern
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -18,8 +20,8 @@ pub fn generate_state_machine<T: PatternChar>(
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
     let match_error_type = resolver.match_error_type();
 
+    let mut variant_field_attrs = Vec::with_capacity(variants.len());
     let mut builder = match_graph::Builder::new();
-
     for (assoc, variant) in variants.into_iter().enumerate() {
         let mut declares = prelude.declares.clone();
         declares.merge(variant.declares);
@@ -28,6 +30,8 @@ pub fn generate_state_machine<T: PatternChar>(
             Ok(v) => v,
             Err(e) => return e.to_compile_error(),
         };
+
+        variant_field_attrs.push(variant.field_attrs);
         builder.add(assoc, pattern);
     }
 
@@ -41,7 +45,7 @@ pub fn generate_state_machine<T: PatternChar>(
         .states()
         .iter()
         .enumerate()
-        .map(|(i, e)| generate_state_variant(options, item, i, e));
+        .map(|(i, e)| generate_state_variant(options, item, &variant_field_attrs, i, e));
 
     let dead_state_variant = resolver.dead_state_variant_name(); 
     let state_machine_impl = generate_state_machine_impl(options, item, &graph);
@@ -52,7 +56,7 @@ pub fn generate_state_machine<T: PatternChar>(
 
         impl ::regen::__internal_macro::Parse<#base_type> for #ident {
             type Error = #match_error_type<#error_type>;
-            type StateMachine =#state_machine_name;
+            type StateMachine = #state_machine_name;
         }
 
         #[doc(hidden)]
@@ -123,6 +127,37 @@ fn error_check<T: PatternChar>(
     })
 }
 
+
+
+fn generate_state_variant<T: PatternChar>(
+    options: &RegenOptions,
+    item: &syn::ItemEnum,
+    field_attrs: &[HashMap<String, FieldAttribute>],
+    state_index: usize,
+    state: &MatchState<T>,
+) -> TokenStream {
+    let resolver = options.resolver();
+    let fields = state.props().iter().map(|prop| {
+        let field_name = resolver.state_field_name(prop);
+        let attrs = field_attrs[prop.assoc].get(&prop.field).unwrap();
+        let ty = resolver.state_field_type(item, attrs, prop);
+
+        quote! {
+            #field_name : #ty
+        }
+    });
+
+    let variant_name = resolver.state_variant_name(state_index);
+
+    quote! {
+        #variant_name {
+            #(
+                #fields
+            ),*
+        }
+    }
+}
+
 fn generate_default_impl<T: PatternChar>(
     options: &RegenOptions,
     item: &syn::ItemEnum, 
@@ -155,33 +190,6 @@ fn generate_default_impl<T: PatternChar>(
     }
 }
 
-fn generate_state_variant<T: PatternChar>(
-    options: &RegenOptions,
-    item: &syn::ItemEnum,
-    state_index: usize,
-    state: &MatchState<T>,
-) -> TokenStream {
-    let resolver = options.resolver();
-    let fields = state.props().iter().map(|prop| {
-        let field_name = resolver.state_field_name(prop);
-        let ty = resolver.state_field_type(item, prop);
-
-        quote! {
-            #field_name : #ty
-        }
-    });
-
-    let variant_name = resolver.state_variant_name(state_index);
-
-    quote! {
-        #variant_name {
-            #(
-                #fields
-            ),*
-        }
-    }
-}
-
 fn generate_state_machine_impl<T: PatternChar>(
     options: &RegenOptions,
     item: &syn::ItemEnum,
@@ -197,6 +205,7 @@ fn generate_state_machine_impl<T: PatternChar>(
 
     let advance_impl = generate_advance_impl(options, item, graph);
     let complete_impl = generate_complete_impl(options, item, graph);
+    let current_impl = generate_current_impl(options, item, &graph);
 
     quote! {
         impl #state_machine_trait<#base_type> for #state_machine_name {
@@ -205,26 +214,23 @@ fn generate_state_machine_impl<T: PatternChar>(
 
             #advance_impl
             #complete_impl
+            #current_impl
         }
     }
 }
 
 fn generate_advance_impl<T: PatternChar>(
     options: &RegenOptions,
-    item: &syn::ItemEnum,
+    item: &syn::ItemEnum, 
     graph: &MatchGraph<T>,
 ) -> TokenStream {
     let resolver = options.resolver(); 
     let base_type = resolver.base_type(); 
-    let match_error_type = resolver.match_error_type();
     let from_char_seq_builder_trait = resolver.from_char_seq_builder_trait();
     let advance_result_type = resolver.advance_result_type(); 
     let default_trait = resolver.default_trait();
     let dead_state = resolver.dead_state_variant_name();
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
-    let item_name = &item.ident; 
-    let result_type = resolver.result_type();
-    let into_trait = resolver.into_trait();
     let replace_fn = resolver.replace_fn();
 
     let states = graph.states();
@@ -253,12 +259,7 @@ fn generate_advance_impl<T: PatternChar>(
                     }
                 });
 
-                let fields = dst_state.props().iter().map(|prop| {
-                    let field = resolver.state_field_name(prop);
-                    quote! {
-                        #field
-                    }
-                });
+                let fields = dst_state.props().iter().map(|prop| resolver.state_field_name(prop));
 
                 let updates = dst_state.collects().iter().map(|prop| {
                     let field = resolver.state_field_name(prop);
@@ -267,37 +268,15 @@ fn generate_advance_impl<T: PatternChar>(
                     }
                 });
 
-                let result = match  dst_state.assoc().first() {
-                    Some(&assoc) => {
-                        let variant = &item.variants[assoc].ident;
-                        let declares = dst_state.props().iter().filter(|p| p.assoc == assoc).map(|prop| {
-                            let field = format_ident!("{}", &prop.field);
-                            let state_field = resolver.state_field_name(prop);
-                            
-                            quote! {
-                                let #field = match <_ as #from_char_seq_builder_trait<#base_type>>::build(&mut #state_field) {
-                                    #result_type::Ok(v) => v,
-                                    #result_type::Err(e) => return #advance_result_type::Error(#match_error_type::Collect(<_ as #into_trait<_>>::into(e)))
-                                };
-                            }
-                        });
-
-                        let fields = dst_state.props().iter().filter(|p| p.assoc == assoc).map(|p| format_ident!("{}", &p.field));
-
-                        quote! {
-                            #(#declares)*
-
-                            let result = #advance_result_type::Match(
-                                #item_name::#variant {
-                                    #(#fields),*
-                                },
-                                1
-                            );
+                let result = match dst_state.assoc().first() {
+                    Some(_) => {
+                        quote! { 
+                            #advance_result_type::Match(1)
                         }
                     },
                     None => {
                         quote! {
-                            let result = #advance_result_type::Partial(1) ;
+                            #advance_result_type::Partial(1)
                         }
                     }
                 };
@@ -308,13 +287,11 @@ fn generate_advance_impl<T: PatternChar>(
 
                         #(#updates)*
 
-                        #result;
-
                         self.state = #state_type_name::#dst_state_name {
                             #(#fields),*
                         };
-
-                        result
+ 
+                        #result
                     }
                 }
             });
@@ -324,7 +301,7 @@ fn generate_advance_impl<T: PatternChar>(
                 match c {
                     #(#branches)*
                     _ => {
-                        #advance_result_type::Error(#match_error_type::NotMatched)
+                        #advance_result_type::Error
                     }
                 }
             }
@@ -332,12 +309,12 @@ fn generate_advance_impl<T: PatternChar>(
     });
 
     quote! {
-        fn advance(&mut self, c: #base_type) -> #advance_result_type<Self::Output, Self::Error> {
+        fn advance(&mut self, c: #base_type) -> #advance_result_type {
             let state = #replace_fn(&mut self.state, #state_machine_state_name::#dead_state);
             match state {
                 #(#state_branches),*
                 #state_machine_state_name::#dead_state => {
-                    #advance_result_type::Error(#match_error_type::NotMatched)
+                    #advance_result_type::Error
                 }
             }
         }
@@ -349,16 +326,10 @@ fn generate_complete_impl<T: PatternChar>(
     item: &syn::ItemEnum,
     graph: &MatchGraph<T>,
 ) -> TokenStream {
-    let resolver = options.resolver();  
-    let match_error_type = resolver.match_error_type();
-    let from_char_seq_builder_trait = resolver.from_char_seq_builder_trait();
+    let resolver = options.resolver();
     let complete_result_type = resolver.complete_result_type(); 
     let dead_state = resolver.dead_state_variant_name();
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
-    let item_name = &item.ident;
-    let base_type = resolver.base_type();
-    let result_type = resolver.result_type();
-    let into_trait = resolver.into_trait();
     let replace_fn = resolver.replace_fn();
 
     let states = graph.states();
@@ -371,6 +342,60 @@ fn generate_complete_impl<T: PatternChar>(
                 mut #f
             }
         });
+
+        let result = match state.assoc().first() {
+            Some(_) => {
+                quote! { 
+                    #complete_result_type::Match(1)
+                }
+            },
+            None => {
+                quote! {
+                    #complete_result_type::Error
+                }
+            }
+        };
+
+        quote! {
+            #state_machine_state_name::#variant { #(#fields),* } => {
+                self.state = #state_type_name::#dead_state;
+                #result
+            }
+        }
+    });
+
+    quote! {
+        fn complete(&mut self) -> #complete_result_type {
+            let state = #replace_fn(&mut self.state,  #state_machine_state_name::#dead_state);
+            match state {
+                #(#state_branches),*
+                #state_machine_state_name::#dead_state => {
+                    #complete_result_type::Error
+                }
+            }
+        }
+    }
+}
+
+fn generate_current_impl<T: PatternChar>(
+    options: &RegenOptions,
+    item: &syn::ItemEnum,
+    graph: &MatchGraph<T>,
+) -> TokenStream {
+    let resolver = options.resolver();  
+    let match_error_type = resolver.match_error_type();
+    let from_char_seq_builder_trait = resolver.from_char_seq_builder_trait(); 
+    let dead_state = resolver.dead_state_variant_name();
+    let state_machine_state_name = resolver.state_machine_state_type_name(item);
+    let item_name = &item.ident;
+    let base_type = resolver.base_type();
+    let result_type = resolver.result_type();
+    let into_trait = resolver.into_trait(); 
+    
+    let states = graph.states(); 
+    let state_branches = states.iter().enumerate().map(|(state_index, state)| {
+        let variant = resolver.state_variant_name(state_index);
+        let fields  = state.props().iter().map(|e| resolver.state_field_name(e));
         
         let result = match state.assoc().first() {
             Some(&assoc) => {
@@ -380,9 +405,9 @@ fn generate_complete_impl<T: PatternChar>(
                     let state_field = resolver.state_field_name(prop);
                     
                     quote! {
-                        let #field = match <_ as #from_char_seq_builder_trait<#base_type>>::build(&mut #state_field) {
+                        let #field = match <_ as #from_char_seq_builder_trait<#base_type>>::build(#state_field) {
                             #result_type::Ok(v) => v,
-                            #result_type::Err(e) => return #complete_result_type::Error(#match_error_type::Collect(<_ as #into_trait<_>>::into(e)))
+                            #result_type::Err(e) => return #result_type::Err(#match_error_type::Collect(<_ as #into_trait<_>>::into(e)))
                         };
                     }
                 });
@@ -391,17 +416,16 @@ fn generate_complete_impl<T: PatternChar>(
 
                 quote! {
                     #(#declares)*
-                    let result = #complete_result_type::Match(
+                    #result_type::Ok(
                         #item_name::#variant {
                             #(#fields),*
-                        },
-                        1
-                    );
+                        }
+                    )
                 }
             },
             None => {
                 quote! {
-                    let result = #complete_result_type::Error(#match_error_type::NotMatched);
+                    #result_type::Err(#match_error_type::NotMatched)
                 }
             }
         };
@@ -410,21 +434,16 @@ fn generate_complete_impl<T: PatternChar>(
         quote! {
             #state_machine_state_name::#variant { #(#fields),* } => {
                 #result
-
-                self.state = #state_type_name::#dead_state;
-
-                result
             }
         }
     });
 
     quote! {
-        fn complete(&mut self) -> #complete_result_type<Self::Output, Self::Error> {
-            let state = #replace_fn(&mut self.state,  #state_machine_state_name::#dead_state);
-            match state {
+        fn current(&self) -> #result_type<Self::Output, Self::Error> {
+            match &self.state {
                 #(#state_branches),*
                 #state_machine_state_name::#dead_state => {
-                    #complete_result_type::Error(#match_error_type::NotMatched)
+                    #result_type::Err(#match_error_type::NotMatched)
                 }
             }
         }

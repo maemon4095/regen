@@ -7,7 +7,7 @@ pub trait FromCharSequence<T> {
 }
 
 pub trait FromCharSequenceBuilder<T>: Default {
-    type Type: FromCharSequence<T>;
+    type Type;
     type Error;
 
     fn append(&mut self, char: T);

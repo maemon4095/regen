@@ -1,6 +1,7 @@
 mod base_type;
 mod declares;
 mod expr;
+mod field_attibute;
 mod generate;
 mod linkedlist;
 mod match_graph;

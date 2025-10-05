@@ -10,22 +10,24 @@ pub trait Parse<T>: Sized {
 pub trait StateMachine<T>: Default {
     type Output;
     type Error;
-    fn advance(&mut self, c: T) -> AdvanceResult<Self::Output, Self::Error>;
-    fn complete(&mut self) -> CompleteResult<Self::Output, Self::Error>;
+    fn advance(&mut self, c: T) -> AdvanceResult;
+    fn complete(&mut self) -> CompleteResult;
+
+    fn current(&self) -> Result<Self::Output, Self::Error>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AdvanceResult<T, E> {
-    Error(E),
+pub enum AdvanceResult {
+    Error,
     Partial(usize),
     Rewind(usize),
-    Match(T, usize),
+    Match(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CompleteResult<T, E> {
-    Error(E),
-    Match(T, usize),
+pub enum CompleteResult {
+    Error,
+    Match(usize),
 }
 
 #[derive(Debug, PartialEq, Eq)]

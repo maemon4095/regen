@@ -1,4 +1,7 @@
-use crate::{base_type::BaseType, match_graph::MatchProp, regen_args::RegenArgs};
+use crate::{
+    base_type::BaseType, field_attibute::FieldAttribute, match_graph::MatchProp,
+    regen_args::RegenArgs,
+};
 use quote::{ToTokens, format_ident, quote};
 use syn::{parse_quote, spanned::Spanned as _};
 
@@ -175,18 +178,31 @@ impl PathResolver {
         quote::format_ident!("_{}_{}", prop.assoc, prop.field)
     }
 
-    pub fn state_field_type(&self, item: &syn::ItemEnum, prop: &MatchProp) -> impl ToTokens {
+    pub fn state_field_type(
+        &self,
+        item: &syn::ItemEnum,
+        attrs: &FieldAttribute,
+        prop: &MatchProp,
+    ) -> impl ToTokens {
+        if let Some(builder) = attrs.builder() {
+            return quote! { #builder };
+        }
+
         let base_type = self.base_type();
         let from_char_seq_trait = self.from_char_seq_trait();
         let variant = &item.variants[prop.assoc];
-        let ty = variant.fields.iter().enumerate().find_map(|(i, e)| {
-            let field = e
+        let ty = variant.fields.iter().enumerate().find_map(|(i, field)| {
+            let field_name = field
                 .ident
                 .as_ref()
                 .map(ToString::to_string)
                 .unwrap_or(i.to_string());
 
-            (field == prop.field).then_some(&e.ty)
+            if field_name != prop.field {
+                return None;
+            }
+
+            Some(&field.ty)
         });
 
         ty.map(|e| {
