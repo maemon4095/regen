@@ -82,7 +82,7 @@ fn strip_variant_declares<T: PatternChar>(variant: &mut syn::Variant) -> syn::Re
     for attr in attrs {
         let meta = attr.meta.require_list()?;
         let decl: Declares<T> = syn::parse2(meta.tokens.clone())?;
-        declares.merge(decl);
+        declares.append(decl);
     }
 
     Ok(declares)

@@ -10,12 +10,10 @@ mod pattern_char;
 mod regen_args;
 mod regen_options;
 mod regen_prelude;
-mod resolved_pattern;
 mod util;
 mod variant_pattern;
 
 use base_type::BaseType;
-use declares::Declares;
 use generate::generate_state_machine;
 use pattern_char::PatternChar;
 use proc_macro2::TokenStream;

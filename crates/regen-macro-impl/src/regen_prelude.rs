@@ -16,7 +16,7 @@ pub fn strip_prelude<T: PatternChar>(
     for attr in declare_attrs {
         let list = attr.meta.require_list()?;
         let decl: Declares<T> = syn::parse2(list.tokens.clone())?;
-        declares.merge(decl);
+        declares.append(decl);
     }
 
     Ok(RegenPrelude { declares })

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-     field_attibute::FieldAttribute, match_graph::{self, MatchGraph, MatchState}, pattern_char::PatternChar, regen_options::RegenOptions, regen_prelude::RegenPrelude, resolved_pattern::ResolvedPattern, variant_pattern::VariantPattern
+   field_attibute::FieldAttribute, match_graph::{self, MatchGraph, MatchState}, pattern::{ResolveEnv}, pattern_char::PatternChar, regen_options::RegenOptions, regen_prelude::RegenPrelude, variant_pattern::VariantPattern
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -20,19 +20,26 @@ pub fn generate_state_machine<T: PatternChar>(
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
     let match_error_type = resolver.match_error_type();
 
+    let root_env = match ResolveEnv::new(&ResolveEnv::empty(), &prelude.declares) {
+        Ok(v) => v,
+        Err(e) => {
+            return e.into_compile_error()        },
+    };
     let mut variant_field_attrs = Vec::with_capacity(variants.len());
     let mut builder = match_graph::Builder::new();
     for (assoc, variant) in variants.into_iter().enumerate() {
-        let mut declares = prelude.declares.clone();
-        declares.merge(variant.declares);
-
-        let pattern = match ResolvedPattern::resolve(&declares, variant.pattern) {
+        let env = match ResolveEnv::new(&root_env, &variant.declares) {
+            Ok(v) => v,
+            Err(e) => return e.into_compile_error(),
+        };
+        
+        let pattern = match env.resolve(&variant.pattern) {
             Ok(v) => v,
             Err(e) => return e.to_compile_error(),
         };
 
         variant_field_attrs.push(variant.field_attrs);
-        builder.add(assoc, pattern);
+        builder.add(assoc, &pattern);
     }
 
     let graph = builder.build();

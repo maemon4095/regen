@@ -1,7 +1,31 @@
-use std::ops::Bound;
+mod atom;
+mod cls;
+mod collect;
+mod join;
+mod or;
+mod repeat;
+mod seq;
 
-use crate::{expr::eval_as_range, pattern_char::PatternChar};
-use syn::{parse::Parse, punctuated::Punctuated, spanned::Spanned};
+use crate::declares::Declares;
+use crate::{match_graph::MatchPattern, pattern_char::PatternChar};
+use __internal::{BelongTo, PatternKind};
+use std::collections::HashMap;
+use std::ops::Bound;
+use syn::spanned::Spanned;
+
+pub use atom::PatternAtom;
+pub use cls::PatternClass;
+pub use collect::PatternCollect;
+pub use join::PatternJoin;
+pub use or::PatternOr;
+pub use repeat::PatternRepeat;
+pub use seq::PatternSeq;
+
+#[derive(Debug, Clone)]
+pub struct PatternTag;
+impl PatternKind for PatternTag {
+    type Pattern<T: PatternChar> = Pattern<T>;
+}
 
 #[derive(Debug, Clone)]
 pub enum Pattern<T: PatternChar> {
@@ -12,6 +36,10 @@ pub enum Pattern<T: PatternChar> {
     Or(Box<PatternOr<T>>),
     Repeat(Box<PatternRepeat<T>>),
     Collect(Box<PatternCollect<T>>),
+}
+
+impl<T: PatternChar> BelongTo for Pattern<T> {
+    type Kind = PatternTag;
 }
 
 impl<T: PatternChar> Pattern<T> {
@@ -103,193 +131,135 @@ fn expect_lit(e: &syn::Expr) -> Result<&syn::Lit, syn::Error> {
     }
 }
 
-impl<T: PatternChar> From<PatternAtom<T>> for Pattern<T> {
-    fn from(value: PatternAtom<T>) -> Self {
-        Pattern::Atom(value)
-    }
-}
-
-// PatternAtom ::= char | num
 #[derive(Debug, Clone)]
-pub enum PatternAtom<T: PatternChar> {
-    Primitive(T),
-    Range(Bound<T>, Bound<T>),
+pub struct ResolvedPatternTag;
+
+impl PatternKind for ResolvedPatternTag {
+    type Pattern<T: PatternChar> = ResolvedPattern<T>;
 }
 
 #[derive(Debug, Clone)]
-pub struct PatternClass {
-    pub path: syn::Path,
+pub enum ResolvedPattern<T: PatternChar> {
+    Atom(PatternAtom<T>),
+    Seq(PatternSeq<T, ResolvedPatternTag>),
+    Join(Box<PatternJoin<T, ResolvedPatternTag>>),
+    Or(Box<PatternOr<T, ResolvedPatternTag>>),
+    Repeat(Box<PatternRepeat<T, ResolvedPatternTag>>),
+    Collect(Box<PatternCollect<T, ResolvedPatternTag>>),
 }
 
-// PatternSeq ::= array | bstr | str
-#[derive(Debug, Clone)]
-pub struct PatternSeq<T: PatternChar> {
-    pub patterns: Vec<Pattern<T>>,
+impl<T: PatternChar> BelongTo for ResolvedPattern<T> {
+    type Kind = ResolvedPatternTag;
 }
 
-impl<T: PatternChar> PatternSeq<T> {
-    fn from_str(str: &syn::LitStr) -> syn::Result<Self> {
-        let patterns = str
-            .value()
-            .chars()
-            .map(|e| {
-                T::try_from_char(e)
-                    .map(PatternAtom::Primitive)
-                    .map(Pattern::Atom)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|m| syn::Error::new(str.span(), m))?;
-
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                str.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
-        }
-    }
-
-    fn from_bstr(str: &syn::LitByteStr) -> syn::Result<Self> {
-        let patterns = str
-            .value()
-            .iter()
-            .map(|&e| {
-                T::try_from_u8(e)
-                    .map(PatternAtom::Primitive)
-                    .map(Pattern::Atom)
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|m| syn::Error::new(str.span(), m))?;
-
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                str.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
-        }
-    }
-
-    fn from_array(arr: &syn::ExprArray) -> syn::Result<Self> {
-        let patterns = arr
-            .elems
-            .iter()
-            .map(|e| Pattern::new(e))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                arr.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
+impl<T: PatternChar> MatchPattern<T> for ResolvedPattern<T> {
+    fn insert(
+        &self,
+        builder: &mut crate::match_graph::Builder<T>,
+        context: &mut crate::match_graph::BuildContext,
+        from: crate::match_graph::StateId,
+    ) -> crate::match_graph::StateId {
+        match self {
+            ResolvedPattern::Atom(p) => p.insert(builder, context, from),
+            ResolvedPattern::Seq(p) => p.insert(builder, context, from),
+            ResolvedPattern::Join(p) => p.insert(builder, context, from),
+            ResolvedPattern::Or(p) => p.insert(builder, context, from),
+            ResolvedPattern::Repeat(p) => p.insert(builder, context, from),
+            ResolvedPattern::Collect(p) => p.insert(builder, context, from),
         }
     }
 }
 
-// PatternJoin ::= pattern + "+" +  pattern
-#[derive(Debug, Clone)]
-pub struct PatternJoin<T: PatternChar> {
-    pub lhs: Pattern<T>,
-    pub rhs: Pattern<T>,
+pub struct ResolveEnv<T: PatternChar> {
+    variables: HashMap<String, ResolvedPattern<T>>,
 }
 
-// PatternOr ::= pattern + "|" + pattern
-#[derive(Debug, Clone)]
-pub struct PatternOr<T: PatternChar> {
-    pub lhs: Pattern<T>,
-    pub rhs: Pattern<T>,
-}
-
-// PatternRepeat ::=  "[" + pattern + ";" + range "]" "repeat!(" + pattern ")"  | "repeat!(" + pattern + "," + range + ")"
-#[derive(Debug, Clone)]
-pub struct PatternRepeat<T: PatternChar> {
-    pub pattern: Pattern<T>,
-    pub start: Bound<usize>,
-    pub end: Bound<usize>,
-}
-
-impl<T: PatternChar> PatternRepeat<T> {
-    fn from_repeat(e: &syn::ExprRepeat) -> syn::Result<Self> {
-        let (start, end) = eval_as_range(&e.len)?;
-
-        Ok(Self {
-            pattern: Pattern::new(&e.expr)?,
-            start,
-            end,
-        })
+impl<T: PatternChar> ResolveEnv<T> {
+    pub fn empty() -> Self {
+        Self {
+            variables: HashMap::new(),
+        }
     }
 
-    fn from_mac(mac: &syn::Macro) -> syn::Result<Self> {
-        let e = mac.parse_body_with(Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated)?;
+    pub fn new(parent: &ResolveEnv<T>, declares: &Declares<T>) -> syn::Result<Self> {
+        let mut env = Self {
+            variables: parent.variables.clone(),
+        };
 
-        let r = match e.len() {
-            1 => {
-                let pattern = Pattern::new(&e[0])?;
-                PatternRepeat {
-                    pattern,
-                    start: Bound::Unbounded,
-                    end: Bound::Unbounded,
-                }
+        for (name, pattern) in declares.variables() {
+            let p = env.resolve(pattern)?;
+            env.variables.insert(name.clone(), p);
+        }
+
+        Ok(env)
+    }
+
+    pub fn variable(&self, name: &str) -> Option<&ResolvedPattern<T>> {
+        self.variables.get(name)
+    }
+
+    pub fn resolve(&self, pattern: &Pattern<T>) -> syn::Result<ResolvedPattern<T>> {
+        let p = match pattern {
+            Pattern::Atom(p) => ResolvedPattern::Atom(p.clone()),
+            Pattern::Seq(p) => {
+                let patterns = p
+                    .patterns
+                    .iter()
+                    .map(|e| self.resolve(e))
+                    .collect::<Result<Vec<_>, _>>()?;
+
+                ResolvedPattern::Seq(PatternSeq { patterns })
             }
-            2 => {
-                let pattern = Pattern::new(&e[0])?;
-                let (start, end) = eval_as_range(&e[1])?;
-                PatternRepeat {
-                    pattern,
-                    start,
-                    end,
-                }
+            Pattern::Join(p) => {
+                let lhs = self.resolve(&p.lhs)?;
+                let rhs = self.resolve(&p.rhs)?;
+                let p = PatternJoin { lhs, rhs };
+                ResolvedPattern::Join(Box::new(p))
             }
-            _ => {
-                return Err(syn::Error::new(
-                    e.span(),
-                    "One or two arguments were expected.",
-                ));
+            Pattern::Or(p) => {
+                let lhs = self.resolve(&p.lhs)?;
+                let rhs = self.resolve(&p.rhs)?;
+                let p = PatternOr { lhs, rhs };
+                ResolvedPattern::Or(Box::new(p))
+            }
+            Pattern::Repeat(p) => {
+                let pattern = self.resolve(&p.pattern)?;
+                let p = PatternRepeat {
+                    pattern,
+                    start: p.start,
+                    end: p.end,
+                };
+                ResolvedPattern::Repeat(Box::new(p))
+            }
+            Pattern::Collect(p) => {
+                let pattern = self.resolve(&p.pattern)?;
+                let p = PatternCollect {
+                    pattern,
+                    field: p.field.clone(),
+                };
+                ResolvedPattern::Collect(Box::new(p))
+            }
+            Pattern::Class(c) => {
+                let name = c.path.require_ident()?.to_string();
+                let Some(p) = self.variable(&name) else {
+                    return Err(syn::Error::new(c.path.span(), "Undeclared variable."));
+                };
+                p.clone()
             }
         };
 
-        Ok(r)
+        Ok(p)
     }
 }
 
-// PatternCollect ::= "collect!(" + path  + "," + pattern ")"
-#[derive(Debug, Clone)]
-pub struct PatternCollect<T: PatternChar> {
-    pub field: String,
-    pub pattern: Pattern<T>,
-}
+mod __internal {
+    use crate::pattern_char::PatternChar;
 
-impl<T: PatternChar> PatternCollect<T> {
-    fn from_mac(mac: &syn::Macro) -> syn::Result<Self> {
-        let e = mac.parse_body_with(parser_fn(move |input| {
-            let member = syn::Member::parse(input)?;
-            let _ = <syn::Token![<-]>::parse(input)?;
-            let e = syn::Expr::parse(input)?;
-            let pattern = Pattern::new(&e)?;
-
-            if !input.is_empty() {
-                return Err(input.error("Unexpected arguments of `collect!`."));
-            }
-
-            let field = match member {
-                syn::Member::Named(ident) => ident.to_string(),
-                syn::Member::Unnamed(index) => index.index.to_string(),
-            };
-
-            Ok(PatternCollect { field, pattern })
-        }))?;
-
-        Ok(e)
+    pub trait PatternKind {
+        type Pattern<T: PatternChar>: BelongTo<Kind = Self>;
     }
-}
 
-fn parser_fn<F, T>(f: F) -> F
-where
-    F: for<'a> FnOnce(&'a syn::parse::ParseBuffer<'a>) -> T,
-{
-    f
+    pub trait BelongTo {
+        type Kind: PatternKind;
+    }
 }

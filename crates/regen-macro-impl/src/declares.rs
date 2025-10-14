@@ -1,22 +1,24 @@
-use std::collections::HashMap;
-
 use crate::{pattern::Pattern, pattern_char::PatternChar};
 use syn::{punctuated::Punctuated, spanned::Spanned};
 
 #[derive(Debug, Clone)]
 pub struct Declares<T: PatternChar> {
-    pub variables: HashMap<String, Pattern<T>>,
+    variables: Vec<(String, Pattern<T>)>,
 }
 
 impl<T: PatternChar> Declares<T> {
     pub fn new() -> Self {
         Self {
-            variables: Default::default(),
+            variables: Vec::new(),
         }
     }
 
-    pub fn merge(&mut self, other: Declares<T>) {
-        self.variables.extend(other.variables);
+    pub fn variables(&self) -> &[(String, Pattern<T>)] {
+        &self.variables
+    }
+
+    pub fn append(&mut self, mut other: Declares<T>) {
+        self.variables.append(&mut other.variables);
     }
 }
 

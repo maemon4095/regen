@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use crate::{
     match_graph::MatchProp,
     pattern_char::PatternChar,
-    util::{IntervalMap, interval_map::store::Unique},
+    util::{IntervalMap, interval_map::store::Unique, sorted_vec::SortedVec},
 };
 
 #[derive(Debug)]
@@ -36,7 +36,6 @@ impl<T: PatternChar> MatchGraph<T> {
                 .flat_map(|i| &graph.states[*i].assoc)
                 .copied()
                 .collect();
-            state.assoc.sort();
 
             state.collects = closure
                 .states
@@ -112,7 +111,7 @@ fn epsilon_closure<T: PatternChar>(
 #[derive(Debug)]
 pub struct MatchState<T: PatternChar> {
     branches: MatchBranches<T>,
-    assoc: Vec<usize>,
+    assoc: SortedVec<usize>,
     collects: HashSet<MatchProp>,
     props: HashSet<MatchProp>,
 }
@@ -121,7 +120,7 @@ impl<T: PatternChar> MatchState<T> {
     fn new() -> Self {
         Self {
             branches: MatchBranches::new(),
-            assoc: Vec::new(),
+            assoc: SortedVec::new(),
             collects: HashSet::new(),
             props: HashSet::new(),
         }

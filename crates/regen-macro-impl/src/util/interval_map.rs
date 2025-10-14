@@ -89,7 +89,7 @@ impl<K: Ord + Clone, V: Clone, C: Store<V>> IntervalMap<K, V, C> {
         }
     }
 
-    pub fn append(&mut self, other: &IntervalMap<K, V, C>) {
+    pub fn combine(&mut self, other: &IntervalMap<K, V, C>) {
         for (from, to, s) in other.iter() {
             self.insert_ropen(from.cloned(), to.cloned(), s);
         }

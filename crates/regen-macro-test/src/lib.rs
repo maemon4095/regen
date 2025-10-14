@@ -119,6 +119,7 @@ mod test {
         let mut machine = <PartialMatch as Parse<u8>>::StateMachine::default();
 
         let r = machine.advance(b'a');
+
         match r {
             AdvanceResult::Match(c) => {
                 let v = machine.current().unwrap();
@@ -169,6 +170,7 @@ mod test {
         }
 
         let r = machine.advance(b'a');
+       
         match r {
             AdvanceResult::Match(c) => {
                 let v = machine.current().unwrap();
