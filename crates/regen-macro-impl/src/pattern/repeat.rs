@@ -1,5 +1,5 @@
 use crate::{
-    expr::eval_as_range,
+    eval::eval_as_range,
     match_graph::{BuildContext, Builder, MatchPattern, StateId},
     pattern::{Pattern, PatternKind, PatternTag, ResolvedPatternTag},
     pattern_char::PatternChar,
