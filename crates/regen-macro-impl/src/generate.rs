@@ -212,7 +212,7 @@ fn generate_state_machine_impl<T: PatternChar>(
 
     let advance_impl = generate_advance_impl(options, item, graph);
     let complete_impl = generate_complete_impl(options, item, graph);
-    let current_impl = generate_current_impl(options, item, &graph);
+    let current_impl = generate_current_impl(options, item, graph);
 
     quote! {
         impl #state_machine_trait<#base_type> for #state_machine_name {

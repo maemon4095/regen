@@ -109,6 +109,7 @@ impl PathResolver {
         }
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn into_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
         quote! {
@@ -148,11 +149,13 @@ impl PathResolver {
         quote!(#lib::StateMachine)
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_char_seq_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
         quote!(#lib::FromCharSequence)
     }
 
+    #[allow(clippy::wrong_self_convention)]
     pub fn from_char_seq_builder_trait(&self) -> impl ToTokens {
         let lib = self.regen_macro_lib();
         quote!(#lib::FromCharSequenceBuilder)
