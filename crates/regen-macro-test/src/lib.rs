@@ -109,6 +109,14 @@ impl FromCharSequenceBuilder<char> for UsizeHexBuilder {
     }
 }
 
+#[regen(char)]
+pub enum PublicCase {
+    #[pattern = ""]
+    Empty,
+    #[pattern = "a"]
+    A
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

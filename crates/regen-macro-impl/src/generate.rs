@@ -19,6 +19,7 @@ pub fn generate_state_machine<T: PatternChar>(
     let state_machine_name = resolver.state_machine_type_name(item);
     let state_machine_state_name = resolver.state_machine_state_type_name(item);
     let match_error_type = resolver.match_error_type();
+    let vis = &item.vis;
 
     let root_env = match ResolveEnv::new(&ResolveEnv::empty(), &prelude.declares) {
         Ok(v) => v,
@@ -68,13 +69,13 @@ pub fn generate_state_machine<T: PatternChar>(
 
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
-        struct #state_machine_name {
+        #vis struct #state_machine_name {
             state: #state_machine_state_name
         }
 
         #[doc(hidden)]
         #[allow(non_camel_case_types)]
-        enum #state_machine_state_name {
+        #vis enum #state_machine_state_name {
             #(#state_variants,)*
             #dead_state_variant
         }
@@ -363,7 +364,7 @@ fn generate_complete_impl<T: PatternChar>(
         let result = match state.assoc().first() {
             Some(_) => {
                 quote! { 
-                    #complete_result_type::Match(1)
+                    #complete_result_type::Match(0)
                 }
             },
             None => {

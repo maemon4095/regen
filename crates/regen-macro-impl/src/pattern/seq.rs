@@ -3,7 +3,6 @@ use crate::{
     pattern::{Pattern, PatternAtom, PatternKind, PatternTag, ResolvedPatternTag},
     pattern_char::PatternChar,
 };
-use syn::spanned::Spanned as _;
 
 // PatternSeq ::= array | bstr | str
 #[derive(Debug, Clone)]
@@ -24,14 +23,7 @@ impl<T: PatternChar> PatternSeq<T> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|m| syn::Error::new(str.span(), m))?;
 
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                str.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
-        }
+        Ok(PatternSeq { patterns })
     }
 
     pub fn from_bstr(str: &syn::LitByteStr) -> syn::Result<Self> {
@@ -46,14 +38,7 @@ impl<T: PatternChar> PatternSeq<T> {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|m| syn::Error::new(str.span(), m))?;
 
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                str.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
-        }
+        Ok(PatternSeq { patterns })
     }
 
     pub fn from_array(arr: &syn::ExprArray) -> syn::Result<Self> {
@@ -63,14 +48,7 @@ impl<T: PatternChar> PatternSeq<T> {
             .map(|e| Pattern::new(e))
             .collect::<Result<Vec<_>, _>>()?;
 
-        if patterns.is_empty() {
-            Err(syn::Error::new(
-                arr.span(),
-                "Sequence pattern must not be empty.",
-            ))
-        } else {
-            Ok(PatternSeq { patterns })
-        }
+        Ok(PatternSeq { patterns })
     }
 }
 
