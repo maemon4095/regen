@@ -23,7 +23,7 @@ impl<T: PatternChar> Builder<T> {
         StateId(0)
     }
 
-    pub fn alloc_state(&mut self, context: &mut BuildContext) -> StateId {
+    fn alloc_state(&mut self, context: &mut BuildContext) -> StateId {
         let next = self.states.len();
 
         let state = nondeterministic::MatchState {
@@ -38,7 +38,7 @@ impl<T: PatternChar> Builder<T> {
         StateId(next)
     }
 
-    pub fn insert_epsilon_transition(&mut self, from: StateId, to: StateId) {
+    fn insert_epsilon_transition(&mut self, from: StateId, to: StateId) {
         self.states[from.0].epsilon_transitions.push(to.0);
     }
 
@@ -116,6 +116,18 @@ impl<T: PatternChar> Builder<T> {
         };
 
         pattern.insert(self, &mut ctx, from)
+    }
+
+    pub fn insert_junction(
+        &mut self,
+        context: &mut BuildContext,
+        states: impl IntoIterator<Item = StateId>,
+    ) -> StateId {
+        let state = self.alloc_state(context);
+        for s in states {
+            self.insert_epsilon_transition(s, state);
+        }
+        state
     }
 
     pub fn build(self) -> deterministic::MatchGraph<T> {

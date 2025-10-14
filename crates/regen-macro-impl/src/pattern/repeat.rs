@@ -82,21 +82,23 @@ impl<T: PatternChar> MatchPattern<T> for PatternRepeat<T, ResolvedPatternTag> {
         match &self.end {
             Bound::Included(n) => {
                 let mut state = state;
-                let end_state = builder.alloc_state(context);
+                let mut states = Vec::with_capacity(*n);
+                states.push(state);
                 for _ in 0..(*n) {
                     state = self.pattern.insert(builder, context, state);
-                    builder.insert_epsilon_transition(state, end_state);
+                    states.push(state);
                 }
-                end_state
+                builder.insert_junction(context, states)
             }
             Bound::Excluded(n) => {
                 let mut state = state;
-                let end_state = builder.alloc_state(context);
+                let mut states = Vec::with_capacity(*n);
+                states.push(state);
                 for _ in 1..(*n) {
                     state = self.pattern.insert(builder, context, state);
-                    builder.insert_epsilon_transition(state, end_state);
+                    states.push(state);
                 }
-                end_state
+                builder.insert_junction(context, states)
             }
             Bound::Unbounded => builder.insert_repeat(context, state, &self.pattern),
         }
