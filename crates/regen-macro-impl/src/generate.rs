@@ -418,7 +418,7 @@ fn generate_current_impl<T: PatternChar>(
         let result = match state.assoc().first() {
             Some(&assoc) => {
                 let variant = &item.variants[assoc].ident;
-                let declares =state.props().iter().filter(|p| p.assoc == assoc).map(|prop| {
+                let declares = state.props().iter().filter(|p| p.assoc == assoc).map(|prop| {
                     let field = format_ident!("{}", &prop.field);
                     let state_field = resolver.state_field_name(prop);
                     

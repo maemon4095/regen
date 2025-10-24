@@ -66,7 +66,7 @@ fn create_branches<T: PatternChar>(
     let mut branches: nondeterministic::MatchBranches<T> = Default::default();
 
     for &s in state.states.iter() {
-        branches.append(&graph.states[s].branches)
+        branches.combine(&graph.states[s].branches)
     }
 
     let mut map = IntervalMap::new();

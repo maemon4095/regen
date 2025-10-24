@@ -1,7 +1,7 @@
 use crate::{
-    linkedlist::LinkedList,
     match_graph::{MatchProp, deterministic, nondeterministic},
     pattern_char::PatternChar,
+    util::LinkedList,
     util::interval_map::Interval,
 };
 

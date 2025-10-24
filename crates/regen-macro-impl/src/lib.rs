@@ -3,7 +3,6 @@ mod declares;
 mod eval;
 mod field_attibute;
 mod generate;
-mod linkedlist;
 mod match_graph;
 mod pattern;
 mod pattern_char;

@@ -50,7 +50,7 @@ impl<T: PatternChar> MatchBranches<T> {
         self.map.iter()
     }
 
-    pub fn append(&mut self, other: &Self) {
+    pub fn combine(&mut self, other: &Self) {
         self.map.combine(&other.map);
     }
 }
